@@ -63,71 +63,42 @@ struct ContentView: View {
                 
                 print("✅ ClashX Pro API 连接成功")
                 
-                // 2. 获取当前模式并保存
-                print("💾 保存当前代理模式...")
-                let originalMode = await getCurrentMode()
-                print("📝 当前模式: \(originalMode)")
                 
-                // 3. 查找并断开炉石传说的连接
-                print("🎯 查找炉石传说连接...")
+                // 3. 关闭 WiFi
+                print("📶 关闭 WiFi...")
                 await MainActor.run {
-                    connectionStatus = "查找目标连接..."
+                    connectionStatus = "关闭 WiFi..."
                 }
                 
-                let targetConnectionId = await findHearthstoneConnection()
-                if let connectionId = targetConnectionId {
-                    print("🎯 找到目标连接: \(connectionId)")
-                    let success = await deleteConnection(connectionId)
-                    if success {
-                        print("✅ 成功断开炉石传说连接")
-                        await MainActor.run {
-                            connectionStatus = "断网成功"
-                        }
-                    } else {
-                        print("❌ 断开连接失败")
-                        await MainActor.run {
-                            connectionStatus = "断开失败"
-                        }
-                        return
-                    }
-                } else {
-                    print("⚠️ 未找到炉石传说连接，尝试全局断网...")
-                    // 备选方案：使用全局断网配置
-                    let disconnectSuccess = await enableDisconnectMode()
-                    if disconnectSuccess {
-                        print("✅ 成功启用全局断网模式")
-                        await MainActor.run {
-                            connectionStatus = "全局断网成功"
-                        }
-                    } else {
-                        print("❌ 全局断网模式启用失败")
-                        await MainActor.run {
-                            connectionStatus = "断网失败"
-                        }
-                        return
-                    }
-                }
-                
-                // 4. 等待几秒让用户看到效果
-                print("⏱️ 断网倒计时 3 秒...")
-                try await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
-                
-                // 5. 如果使用了全局断网，需要恢复配置
-                if targetConnectionId == nil {
-                    print("🌐 恢复到原始代理模式...")
+                let wifiOffSuccess = await disableWiFi()
+                if wifiOffSuccess {
+                    print("✅ 成功关闭 WiFi")
                     await MainActor.run {
-                        connectionStatus = "恢复网络..."
-                    }
-                    
-                    let restoreSuccess = await setClashXMode(originalMode)
-                    if restoreSuccess {
-                        print("✅ 成功恢复到 \(originalMode) 模式")
-                    } else {
-                        print("❌ 恢复模式失败，尝试恢复到 rule 模式")
-                        await setClashXMode("rule")
+                        connectionStatus = "断网成功"
                     }
                 } else {
-                    print("✅ 连接已断开，无需恢复配置")
+                    print("❌ 关闭 WiFi 失败")
+                    await MainActor.run {
+                        connectionStatus = "断网失败"
+                    }
+                    return
+                }
+                
+                // 4. 等待 8 秒
+                print("⏱️ 断网倒计时 10 秒...")
+                try await Task.sleep(nanoseconds: 10_000_000_000) // 8 seconds
+                
+                // 5. 重新开启 WiFi
+                print("📶 重新开启 WiFi...")
+                await MainActor.run {
+                    connectionStatus = "恢复网络..."
+                }
+                
+                let wifiOnSuccess = await enableWiFi()
+                if wifiOnSuccess {
+                    print("✅ 成功开启 WiFi")
+                } else {
+                    print("❌ 开启 WiFi 失败")
                 }
                 
                 await MainActor.run {
@@ -248,57 +219,47 @@ struct ContentView: View {
         return "rule" // 默认返回 rule 模式
     }
     
-    // 禁用系统代理
-    private func disableSystemProxy() async {
+    // 关闭 WiFi
+    private func disableWiFi() async -> Bool {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/sbin/networksetup")
-        task.arguments = ["-setwebproxystate", "Wi-Fi", "off"]
+        task.arguments = ["-setairportpower", "en0", "off"]
         
         do {
             try task.run()
             task.waitUntilExit()
-            print("✅ 系统 HTTP 代理已禁用")
+            let success = task.terminationStatus == 0
+            if success {
+                print("✅ WiFi 已关闭")
+            } else {
+                print("❌ 关闭 WiFi 失败，状态码: \(task.terminationStatus)")
+            }
+            return success
         } catch {
-            print("❌ 禁用系统 HTTP 代理失败: \(error)")
-        }
-        
-        let httpsTask = Process()
-        httpsTask.executableURL = URL(fileURLWithPath: "/usr/sbin/networksetup")
-        httpsTask.arguments = ["-setsecurewebproxystate", "Wi-Fi", "off"]
-        
-        do {
-            try httpsTask.run()
-            httpsTask.waitUntilExit()
-            print("✅ 系统 HTTPS 代理已禁用")
-        } catch {
-            print("❌ 禁用系统 HTTPS 代理失败: \(error)")
+            print("❌ 关闭 WiFi 失败: \(error)")
+            return false
         }
     }
     
-    // 启用系统代理
-    private func enableSystemProxy() async {
+    // 开启 WiFi
+    private func enableWiFi() async -> Bool {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/sbin/networksetup")
-        task.arguments = ["-setwebproxystate", "Wi-Fi", "on"]
+        task.arguments = ["-setairportpower", "en0", "on"]
         
         do {
             try task.run()
             task.waitUntilExit()
-            print("✅ 系统 HTTP 代理已启用")
+            let success = task.terminationStatus == 0
+            if success {
+                print("✅ WiFi 已开启")
+            } else {
+                print("❌ 开启 WiFi 失败，状态码: \(task.terminationStatus)")
+            }
+            return success
         } catch {
-            print("❌ 启用系统 HTTP 代理失败: \(error)")
-        }
-        
-        let httpsTask = Process()
-        httpsTask.executableURL = URL(fileURLWithPath: "/usr/sbin/networksetup")
-        httpsTask.arguments = ["-setsecurewebproxystate", "Wi-Fi", "on"]
-        
-        do {
-            try httpsTask.run()
-            httpsTask.waitUntilExit()
-            print("✅ 系统 HTTPS 代理已启用")
-        } catch {
-            print("❌ 启用系统 HTTPS 代理失败: \(error)")
+            print("❌ 开启 WiFi 失败: \(error)")
+            return false
         }
     }
     

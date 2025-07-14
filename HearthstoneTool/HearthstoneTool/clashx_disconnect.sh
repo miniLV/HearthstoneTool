@@ -187,7 +187,7 @@ fi
 
 echo ""
 echo "⏱️ 断网倒计时："
-for i in {5..1}; do
+for i in {8..1}; do
     echo "   $i 秒..."
     sleep 1
 done
