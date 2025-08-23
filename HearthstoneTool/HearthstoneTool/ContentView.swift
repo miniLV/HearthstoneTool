@@ -33,6 +33,13 @@ struct ContentView: View {
                 }
                 
                 HStack {
+                    Text("Clash 状态:")
+                    Spacer()
+                    Text(networkManager.clashConfigured ? "已配置" : "未配置")
+                        .foregroundColor(networkManager.clashConfigured ? .green : .orange)
+                }
+                
+                HStack {
                     Text("监控状态:")
                     Spacer()
                     Text(isMonitoring ? "监控中" : "未监控")
@@ -65,18 +72,18 @@ struct ContentView: View {
                 Button(action: {
                     networkManager.toggleConnection()
                 }) {
-                    Text(networkManager.isConnected ? "手动断网" : "手动连网")
+                    Text(networkManager.clashConfigured ? "断开炉石连接" : (networkManager.isConnected ? "手动断网" : "手动连网"))
                         .font(.headline)
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(networkManager.isConnected ? Color.orange : Color.green)
+                        .background(networkManager.clashConfigured ? Color.red : (networkManager.isConnected ? Color.orange : Color.green))
                         .cornerRadius(10)
                 }
                 .disabled(!networkManager.hearthstoneRunning)
             }
             
-            Text("注意: 需要管理员权限来控制网络连接")
+            Text(networkManager.clashConfigured ? "使用 Clash 精确控制炉石连接，无需管理员权限" : "注意: 需要管理员权限来控制网络连接")
                 .font(.caption)
                 .foregroundColor(.gray)
                 .multilineTextAlignment(.center)
