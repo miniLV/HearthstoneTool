@@ -195,6 +195,23 @@ class NetworkManager: ObservableObject {
     
     // MARK: - Clash Integration
     
+    func setManualClashConfig(controller: String, secret: String) {
+        print("手动设置 Clash 配置: controller=\(controller), secret=\(secret)")
+        clashExternalController = controller
+        clashSecret = secret
+        
+        // Save to UserDefaults
+        UserDefaults.standard.set(controller, forKey: "clashExternalController")
+        UserDefaults.standard.set(secret, forKey: "clashSecret")
+        
+        // Force update the UI state
+        DispatchQueue.main.async {
+            self.clashConfigured = true
+        }
+        
+        testClashConnection()
+    }
+    
     private func loadClashConfig() {
         print("开始加载 Clash 配置...")
         
@@ -211,20 +228,33 @@ class NetworkManager: ObservableObject {
             return
         }
         
-        // Try to load from Clash config file
+        // Try multiple config files
         let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
-        let configPath = homeDirectory.appendingPathComponent(".config/clash/config.yaml")
-        print("尝试从配置文件加载: \(configPath.path)")
+        let configPaths = [
+            homeDirectory.appendingPathComponent(".config/clash/config.yaml"),
+            homeDirectory.appendingPathComponent(".config/clash/泡泡Dog.yaml")
+        ]
         
-        do {
-            let configContent = try String(contentsOf: configPath)
-            print("成功读取配置文件，内容长度: \(configContent.count)")
-            parseClashConfig(configContent)
-        } catch {
-            print("无法加载 Clash 配置: \(error)")
-            DispatchQueue.main.async {
-                self.clashConfigured = false
+        for configPath in configPaths {
+            print("尝试从配置文件加载: \(configPath.path)")
+            
+            do {
+                let configContent = try String(contentsOf: configPath)
+                print("成功读取配置文件，内容长度: \(configContent.count)")
+                parseClashConfig(configContent)
+                
+                // If we found a valid configuration, test it
+                if !clashExternalController.isEmpty {
+                    return
+                }
+            } catch {
+                print("无法加载配置文件 \(configPath.lastPathComponent): \(error)")
             }
+        }
+        
+        print("所有配置文件加载失败")
+        DispatchQueue.main.async {
+            self.clashConfigured = false
         }
     }
     
@@ -286,30 +316,45 @@ class NetworkManager: ObservableObject {
         }
         
         var request = URLRequest(url: url)
+        request.timeoutInterval = 5.0
         
         if !clashSecret.isEmpty {
             request.setValue("Bearer \(clashSecret)", forHTTPHeaderField: "Authorization")
         }
         
+        print("测试连接到: \(url.absoluteString)")
+        
         clashAPIURLSession.dataTask(with: request) { [weak self] data, response, error in
             if let error = error {
                 print("Clash 连接测试失败: \(error)")
+                print("ClashX Pro External Controller 未启用。")
+                print("请按以下步骤操作:")
+                print("1. 点击菜单栏 ClashX Pro 图标")
+                print("2. 寻找并勾选 '允许局域网连接' 或 'Allow LAN'")
+                print("3. 如果没有该选项，尝试右键菜单栏图标")
+                print("4. 或者完全重启 ClashX Pro")
                 DispatchQueue.main.async {
                     self?.clashConfigured = false
                 }
                 return
             }
             
-            if let httpResponse = response as? HTTPURLResponse,
-               httpResponse.statusCode == 200 {
-                print("Clash 连接测试成功")
-                DispatchQueue.main.async {
-                    self?.clashConfigured = true
+            if let httpResponse = response as? HTTPURLResponse {
+                print("HTTP 状态码: \(httpResponse.statusCode)")
+                if let data = data, let responseString = String(data: data, encoding: .utf8) {
+                    print("响应内容: \(responseString)")
                 }
-            } else {
-                print("Clash API 响应异常")
-                DispatchQueue.main.async {
-                    self?.clashConfigured = false
+                
+                if httpResponse.statusCode == 200 {
+                    print("Clash 连接测试成功")
+                    DispatchQueue.main.async {
+                        self?.clashConfigured = true
+                    }
+                } else {
+                    print("Clash API 响应异常，状态码: \(httpResponse.statusCode)")
+                    DispatchQueue.main.async {
+                        self?.clashConfigured = false
+                    }
                 }
             }
         }.resume()

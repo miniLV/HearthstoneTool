@@ -10,6 +10,7 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var networkManager = NetworkManager()
     @State private var isMonitoring = false
+    @State private var showingClashSetup = false
     
     var body: some View {
         VStack(spacing: 20) {
@@ -37,6 +38,14 @@ struct ContentView: View {
                     Spacer()
                     Text(networkManager.clashConfigured ? "已配置" : "未配置")
                         .foregroundColor(networkManager.clashConfigured ? .green : .orange)
+                    
+                    if !networkManager.clashConfigured {
+                        Button("配置") {
+                            showingClashSetup = true
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
                 }
                 
                 HStack {
@@ -91,6 +100,64 @@ struct ContentView: View {
         .padding()
         .onAppear {
             networkManager.checkHearthstoneStatus()
+        }
+        .sheet(isPresented: $showingClashSetup) {
+            ClashSetupView(networkManager: networkManager)
+        }
+    }
+}
+
+struct ClashSetupView: View {
+    @ObservedObject var networkManager: NetworkManager
+    @State private var controller = "http://127.0.0.1:53378"
+    @State private var secret = "test!123"
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        VStack {
+            HStack {
+                Button("取消") {
+                    dismiss()
+                }
+                Spacer()
+                Text("Clash 配置")
+                    .font(.headline)
+                Spacer()
+                Button("保存并测试") {
+                    networkManager.setManualClashConfig(controller: controller, secret: secret)
+                    dismiss()
+                }
+            }
+            .padding()
+            
+            Form {
+                Section("Clash External Controller 配置") {
+                    TextField("Controller URL", text: $controller)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Secret", text: $secret)
+                        .textFieldStyle(.roundedBorder)
+                }
+                
+                Section("常用端口") {
+                    Button("53378 (ClashX Pro 实际端口)") {
+                        controller = "http://127.0.0.1:53378"
+                    }
+                    Button("9090 (标准默认)") {
+                        controller = "http://127.0.0.1:9090"
+                    }
+                    Button("8080") {
+                        controller = "http://127.0.0.1:8080"
+                    }
+                    Button("9091") {
+                        controller = "http://127.0.0.1:9091"
+                    }
+                }
+                
+                Section("说明") {
+                    Text("请确保 ClashX Pro 已启用 'Allow connect from LAN'")
+                    Text("如果连接失败，请尝试不同的端口")
+                }
+            }
         }
     }
 }
