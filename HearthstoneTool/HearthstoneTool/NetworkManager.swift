@@ -22,8 +22,9 @@ class NetworkManager: ObservableObject {
     
     private let hearthstoneProcessNames = [
         "Hearthstone",
-        "炉石传说",
-        "HearthstoneBeta"
+        "炉石传说", 
+        "HearthstoneBeta",
+        "/Applications/Hearthstone/Hearthstone.app/Contents/MacOS/Hearthstone"
     ]
     
     // Clash configuration
@@ -361,16 +362,22 @@ class NetworkManager: ObservableObject {
     }
     
     private func skipHearthstoneConnection() {
+        print("开始断开炉石连接...")
+        
         guard clashConfigured, !clashExternalController.isEmpty else { 
             print("Clash 未配置或 external controller 为空")
             return 
         }
+        
+        print("Clash 已配置，controller: \(clashExternalController)")
         
         // First, get all connections
         guard let connectionsURL = URL(string: "\(clashExternalController)/connections") else {
             print("无法创建 Clash connections URL: \(clashExternalController)/connections")
             return
         }
+        
+        print("准备获取连接列表: \(connectionsURL.absoluteString)")
         
         var request = URLRequest(url: connectionsURL)
         
@@ -379,33 +386,92 @@ class NetworkManager: ObservableObject {
         }
         
         clashAPIURLSession.dataTask(with: request) { [weak self] data, response, error in
-            guard let self = self, let data = data, error == nil else {
-                print("获取连接列表失败: \(error?.localizedDescription ?? "未知错误")")
+            guard let self = self else { return }
+            
+            if let error = error {
+                print("获取连接列表失败: \(error.localizedDescription)")
                 return
             }
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                print("连接列表请求状态码: \(httpResponse.statusCode)")
+            }
+            
+            guard let data = data else {
+                print("获取连接列表失败: 无数据返回")
+                return
+            }
+            
+            print("连接列表数据长度: \(data.count) 字节")
             
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let connections = json["connections"] as? [[String: Any]] {
                     
+                    print("获取到 \(connections.count) 个连接")
                     self.killHearthstoneConnections(connections)
+                } else {
+                    print("连接数据格式不正确")
+                    if let jsonString = String(data: data, encoding: .utf8) {
+                        print("原始数据: \(jsonString)")
+                    }
                 }
             } catch {
                 print("解析连接数据失败: \(error)")
+                if let jsonString = String(data: data, encoding: .utf8) {
+                    print("原始数据: \(jsonString)")
+                }
             }
         }.resume()
     }
     
     private func killHearthstoneConnections(_ connections: [[String: Any]]) {
-        for connection in connections {
+        print("开始分析 \(connections.count) 个连接...")
+        
+        var hearthstoneConnectionsFound = 0
+        
+        for (index, connection) in connections.enumerated() {
+            print("连接 \(index): \(connection)")
+            
             guard let metadata = connection["metadata"] as? [String: Any],
-                  let process = metadata["process"] as? String,
-                  let id = connection["id"] as? String else { continue }
+                  let id = connection["id"] as? String else { 
+                print("连接 \(index) 缺少必要字段")
+                continue 
+            }
+            
+            let processPath = metadata["processPath"] as? String ?? ""
+            let host = metadata["host"] as? String ?? ""
+            
+            print("连接 \(index) - processPath: '\(processPath)', host: '\(host)', id: \(id)")
             
             // Check if this connection belongs to Hearthstone
-            if hearthstoneProcessNames.contains(where: { process.contains($0) }) {
+            // Method 1: Check processPath for Hearthstone
+            let isHearthstoneByPath = !processPath.isEmpty && hearthstoneProcessNames.contains(where: { processPath.contains($0) })
+            
+            // Method 2: Check host for battlenet domains (Hearthstone uses battlenet)
+            let isHearthstoneByHost = host.contains("battlenet") || host.contains("blizzard")
+            
+            // Method 3: Check for Hearthstone-related hosts
+            let hearthstoneHosts = ["telemetry-in.battlenet.com.cn", "us.battle.net", "eu.battle.net", "kr.battle.net", "tw.battle.net"]
+            let isHearthstoneByKnownHost = hearthstoneHosts.contains(where: { host.contains($0) })
+            
+            if isHearthstoneByPath || isHearthstoneByHost || isHearthstoneByKnownHost {
+                var reason = ""
+                if isHearthstoneByPath { reason = "进程路径匹配" }
+                else if isHearthstoneByHost { reason = "域名匹配" }
+                else if isHearthstoneByKnownHost { reason = "已知炉石域名匹配" }
+                
+                print("找到炉石连接 (\(reason)): processPath='\(processPath)', host='\(host)' (ID: \(id))")
+                hearthstoneConnectionsFound += 1
                 killConnection(id: id)
+            } else {
+                print("非炉石连接: processPath='\(processPath)', host='\(host)'")
             }
+        }
+        
+        print("总共找到 \(hearthstoneConnectionsFound) 个炉石连接")
+        if hearthstoneConnectionsFound == 0 {
+            print("未找到任何炉石连接，可能炉石未建立网络连接或进程名不匹配")
         }
     }
     
