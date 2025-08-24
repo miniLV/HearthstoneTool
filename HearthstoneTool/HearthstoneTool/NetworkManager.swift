@@ -270,15 +270,27 @@ class NetworkManager: ObservableObject {
         
         let passwordData = password.data(using: .utf8)!
         
+        // 创建访问控制，允许应用在设备未锁定时访问，无需用户确认
+        guard let accessControl = SecAccessControlCreateWithFlags(
+            kCFAllocatorDefault,
+            kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            [],
+            nil
+        ) else {
+            print("无法创建访问控制")
+            return false
+        }
+        
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecValueData as String: passwordData,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            kSecAttrAccessControl as String: accessControl
         ]
         
         let status = SecItemAdd(query as CFDictionary, nil)
+        print("保存密码到钥匙串状态: \(status)")
         return status == errSecSuccess
     }
     
