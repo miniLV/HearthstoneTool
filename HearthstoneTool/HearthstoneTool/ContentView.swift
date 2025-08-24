@@ -99,14 +99,15 @@ struct ContentView: View {
                         networkManager.toggleConnection()
                     }
                 }) {
-                    Text(networkManager.clashConfigured ? "断开炉石连接" : (networkManager.isConnected ? "手动断网" : "手动连网"))
+                    Text(networkManager.isDisconnecting ? "重连中..." : (networkManager.clashConfigured ? "断开炉石连接" : (networkManager.isConnected ? "手动断网" : "手动连网")))
                         .font(.headline)
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(networkManager.clashConfigured ? Color.red : (networkManager.isConnected ? Color.orange : Color.green))
+                        .background(networkManager.isDisconnecting ? Color.gray : (networkManager.clashConfigured ? Color.red : (networkManager.isConnected ? Color.orange : Color.green)))
                         .cornerRadius(10)
                 }
+                .disabled(networkManager.isDisconnecting)
             }
             
             VStack(spacing: 8) {

@@ -16,6 +16,7 @@ class NetworkManager: ObservableObject {
     @Published var lastActionStatus = ""
     @Published var usePreciseBlocking = false // 用户可选择是否使用精确阻断
     @Published var hasAdminPassword = false
+    @Published var isDisconnecting = false // 正在执行断开操作
     
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "NetworkMonitor")
@@ -119,11 +120,19 @@ class NetworkManager: ObservableObject {
     
     func toggleConnection() {
         if clashConfigured {
-            if isConnected {
-                // Try Clash first, then fall back to direct process kill
-                skipHearthstoneConnection()
-                // Also try to kill direct game connections
-                killHearthstoneDirectConnections()
+            if isConnected && !isDisconnecting {
+                // 直接执行全网络阻断脚本
+                DispatchQueue.main.async {
+                    self.isDisconnecting = true
+                    self.lastActionStatus = "正在执行网络阻断..."
+                }
+                
+                Task {
+                    await blockAndUnblockServer("")
+                    DispatchQueue.main.async {
+                        self.isDisconnecting = false
+                    }
+                }
             }
         } else {
             if isConnected {
@@ -511,17 +520,17 @@ class NetworkManager: ObservableObject {
         
         DispatchQueue.main.async {
             if hearthstoneConnectionsFound > 0 {
-                self.lastActionStatus = "成功断开 \(hearthstoneConnectionsFound) 个炉石游戏连接"
+                self.lastActionStatus = "通过Clash成功断开 \(hearthstoneConnectionsFound) 个炉石游戏连接"
             } else {
-                self.lastActionStatus = "未找到炉石游戏连接，请确保在游戏中"
+                self.lastActionStatus = "Clash未找到游戏连接，尝试直连方法..."
             }
         }
         
         if hearthstoneConnectionsFound == 0 {
-            print("未找到炉石游戏连接。注意：")
-            print("1. 遥测连接 (telemetry-in.battlenet.com.cn) 不是游戏连接")
-            print("2. 需要在游戏中才有游戏连接")
-            print("3. 游戏连接的特征是: processPath包含Hearthstone且host为空")
+            print("未找到炉石游戏连接，尝试直连方法")
+            print("注意：遥测连接 (telemetry-in.battlenet.com.cn) 不是游戏连接")
+            // 使用直连方法作为备选
+            killHearthstoneDirectConnections()
         }
     }
     
@@ -645,18 +654,15 @@ class NetworkManager: ObservableObject {
                 
                 DispatchQueue.main.async {
                     if gameConnections > 0 {
-                        self.lastActionStatus = "找到 \(gameConnections) 个游戏连接，全网络阻断 20 秒"
-                        // Try to temporarily block these IPs
-                        Task {
-                            await self.temporaryBlockGameServers(gameServerIPs)
-                        }
+                        self.lastActionStatus = "找到 \(gameConnections) 个游戏连接，执行全网络阻断 20 秒"
                     } else {
-                        self.lastActionStatus = "未发现直连游戏连接，仍执行全网络阻断"
-                        // Even if no game connections found, still do full block
-                        Task {
-                            await self.temporaryBlockGameServers(["0.0.0.0"]) // Dummy IP to trigger full block
-                        }
+                        self.lastActionStatus = "未发现直连游戏连接，仍执行全网络阻断 20 秒"
                     }
+                }
+                
+                // 执行全网络阻断（无论是否找到游戏连接）
+                Task {
+                    await self.blockAndUnblockServer("")
                 }
                 
                 continuation.resume()
@@ -674,11 +680,6 @@ class NetworkManager: ObservableObject {
         }
     }
     
-    private func temporaryBlockGameServers(_ serverIPs: [String]) async {
-        // Execute full block only once, regardless of how many IPs found
-        print("执行全网络阻断，发现游戏服务器: \(serverIPs)")
-        await blockAndUnblockServer("")
-    }
     
     private func blockAndUnblockServer(_ serverIP: String) async {
         print("全网络阻断 20 秒...")
@@ -695,13 +696,13 @@ class NetworkManager: ObservableObject {
         echo "[A] 正在阻断所有 TCP 出站连接..."
         
         # 启用pfctl
-        echo "\(password)" | sudo -S pfctl -e > /dev/null 2>&1
+        sudo pfctl -e > /dev/null 2>&1
         
         # 创建阻断规则
-        echo "block drop out quick proto tcp from any to any" | echo "\(password)" | sudo -S tee /etc/pf.blockall.conf > /dev/null
+        echo "block drop out quick proto tcp from any to any" | sudo tee /etc/pf.blockall.conf > /dev/null
         
         # 加载阻断规则
-        echo "\(password)" | sudo -S pfctl -f /etc/pf.blockall.conf > /dev/null 2>&1
+        sudo pfctl -f /etc/pf.blockall.conf > /dev/null 2>&1
         
         echo "[B] 网络已阻断，20 秒后恢复..."
         
@@ -709,12 +710,12 @@ class NetworkManager: ObservableObject {
         sleep 20
         
         # 恢复网络 - 加载原始配置
-        echo "\(password)" | sudo -S pfctl -f /etc/pf.conf > /dev/null 2>&1
+        sudo pfctl -f /etc/pf.conf > /dev/null 2>&1
         
         echo "[C] 网络已恢复"
         """
         
-        await executeBlockScript(blockScript)
+        await executeAppleScriptSudo(blockScript)
     }
     
     private func useNetworkSetupMethod() async {
@@ -807,19 +808,39 @@ class NetworkManager: ObservableObject {
             task.standardOutput = pipe
             task.standardError = pipe
             
+            // 实时读取输出
+            let outputHandle = pipe.fileHandleForReading
+            outputHandle.readabilityHandler = { handle in
+                let data = handle.availableData
+                if !data.isEmpty {
+                    let output = String(data: data, encoding: .utf8) ?? ""
+                    print("实时输出: \(output)")
+                    
+                    DispatchQueue.main.async {
+                        if output.contains("[A] 正在阻断") {
+                            self.lastActionStatus = "正在阻断所有TCP连接..."
+                        } else if output.contains("[B] 网络已阻断") {
+                            self.lastActionStatus = "网络已阻断，20秒后自动恢复..."
+                        } else if output.contains("[C] 网络已恢复") {
+                            self.lastActionStatus = "网络阻断完成，已自动恢复"
+                        }
+                    }
+                }
+            }
+            
             task.terminationHandler = { process in
+                outputHandle.readabilityHandler = nil
+                
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
                 let output = String(data: data, encoding: .utf8) ?? ""
                 
-                print("阻断脚本执行结果: \(output)")
+                print("阻断脚本执行完成: \(output)")
                 
                 DispatchQueue.main.async {
                     if output.contains("需要管理员权限") {
                         self.lastActionStatus = "需要管理员权限执行全网络阻断"
-                    } else if output.contains("网络已恢复") {
-                        self.lastActionStatus = "网络阻断完成，已自动恢复"
-                    } else {
-                        self.lastActionStatus = "全网络阻断执行中..."
+                    } else if !output.contains("[C] 网络已恢复") {
+                        self.lastActionStatus = "网络阻断执行完成"
                     }
                 }
                 
@@ -836,5 +857,13 @@ class NetworkManager: ObservableObject {
                 continuation.resume()
             }
         }
+    }
+    
+    private func executeAppleScriptSudo(_ script: String) async {
+        let appleScript = """
+        do shell script "\(script.replacingOccurrences(of: "\"", with: "\\\""))" with administrator privileges
+        """
+        
+        await executeAppleScript(appleScript)
     }
 }
