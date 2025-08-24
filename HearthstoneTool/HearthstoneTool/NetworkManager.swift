@@ -13,6 +13,9 @@ class NetworkManager: ObservableObject {
     @Published var isConnected = true
     @Published var hearthstoneRunning = false
     @Published var clashConfigured = false
+    @Published var lastActionStatus = ""
+    @Published var usePreciseBlocking = false // 用户可选择是否使用精确阻断
+    @Published var hasAdminPassword = false
     
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "NetworkMonitor")
@@ -35,6 +38,11 @@ class NetworkManager: ObservableObject {
     init() {
         setupNetworkMonitoring()
         loadClashConfig()
+        checkAdminPassword()
+    }
+    
+    private func checkAdminPassword() {
+        hasAdminPassword = UserDefaults.standard.string(forKey: "adminPassword") != nil
     }
     
     deinit {
@@ -112,7 +120,10 @@ class NetworkManager: ObservableObject {
     func toggleConnection() {
         if clashConfigured {
             if isConnected {
+                // Try Clash first, then fall back to direct process kill
                 skipHearthstoneConnection()
+                // Also try to kill direct game connections
+                killHearthstoneDirectConnections()
             }
         } else {
             if isConnected {
@@ -211,6 +222,28 @@ class NetworkManager: ObservableObject {
         }
         
         testClashConnection()
+    }
+    
+    func setAdminPassword(_ password: String) {
+        UserDefaults.standard.set(password, forKey: "adminPassword")
+        checkAdminPassword()
+        lastActionStatus = "管理员密码已保存"
+    }
+    
+    func clearAdminPassword() {
+        UserDefaults.standard.removeObject(forKey: "adminPassword")
+        checkAdminPassword()
+        lastActionStatus = "管理员密码已清除"
+    }
+    
+    func getAdminPassword() -> String? {
+        return UserDefaults.standard.string(forKey: "adminPassword")
+    }
+    
+    func showUserMessage(_ message: String) {
+        DispatchQueue.main.async {
+            self.lastActionStatus = message
+        }
     }
     
     private func loadClashConfig() {
@@ -444,34 +477,51 @@ class NetworkManager: ObservableObject {
             
             print("连接 \(index) - processPath: '\(processPath)', host: '\(host)', id: \(id)")
             
-            // Check if this connection belongs to Hearthstone
-            // Method 1: Check processPath for Hearthstone
-            let isHearthstoneByPath = !processPath.isEmpty && hearthstoneProcessNames.contains(where: { processPath.contains($0) })
+            // Since processPath is empty in our environment, we need alternative detection
             
-            // Method 2: Check host for battlenet domains (Hearthstone uses battlenet)
-            let isHearthstoneByHost = host.contains("battlenet") || host.contains("blizzard")
+            // Method 1: Look for Hearthstone game connections (not telemetry)
+            // Game connections typically use gateway.battlenet.com.cn for game data
+            let isGameConnection = host == "gateway.battlenet.com.cn" || 
+                                 (host.contains("battlenet") && !host.contains("telemetry"))
             
-            // Method 3: Check for Hearthstone-related hosts
-            let hearthstoneHosts = ["telemetry-in.battlenet.com.cn", "us.battle.net", "eu.battle.net", "kr.battle.net", "tw.battle.net"]
-            let isHearthstoneByKnownHost = hearthstoneHosts.contains(where: { host.contains($0) })
+            // Method 2: Check if processPath contains Hearthstone (when available)
+            let isHearthstoneByPath = !processPath.isEmpty && 
+                                    (processPath.contains("Hearthstone") || processPath.contains("hearthstone"))
             
-            if isHearthstoneByPath || isHearthstoneByHost || isHearthstoneByKnownHost {
-                var reason = ""
-                if isHearthstoneByPath { reason = "进程路径匹配" }
-                else if isHearthstoneByHost { reason = "域名匹配" }
-                else if isHearthstoneByKnownHost { reason = "已知炉石域名匹配" }
-                
-                print("找到炉石连接 (\(reason)): processPath='\(processPath)', host='\(host)' (ID: \(id))")
+            // Method 3: For debugging - let user choose to kill specific battlenet connections
+            let isBattlenetConnection = host.contains("battlenet") || host.contains("blizzard")
+            
+            if isHearthstoneByPath {
+                print("找到炉石进程连接: processPath='\(processPath)', host='\(host)' (ID: \(id))")
                 hearthstoneConnectionsFound += 1
                 killConnection(id: id)
+            } else if isGameConnection {
+                print("找到可能的炉石游戏连接: host='\(host)' (ID: \(id))")
+                hearthstoneConnectionsFound += 1
+                killConnection(id: id)
+            } else if isBattlenetConnection {
+                print("发现炉石相关连接但跳过: processPath='\(processPath)', host='\(host)'")
+                print("  -> 如果这是游戏连接，请报告此信息以改进检测")
             } else {
                 print("非炉石连接: processPath='\(processPath)', host='\(host)'")
             }
         }
         
-        print("总共找到 \(hearthstoneConnectionsFound) 个炉石连接")
+        print("总共找到 \(hearthstoneConnectionsFound) 个炉石游戏连接")
+        
+        DispatchQueue.main.async {
+            if hearthstoneConnectionsFound > 0 {
+                self.lastActionStatus = "成功断开 \(hearthstoneConnectionsFound) 个炉石游戏连接"
+            } else {
+                self.lastActionStatus = "未找到炉石游戏连接，请确保在游戏中"
+            }
+        }
+        
         if hearthstoneConnectionsFound == 0 {
-            print("未找到任何炉石连接，可能炉石未建立网络连接或进程名不匹配")
+            print("未找到炉石游戏连接。注意：")
+            print("1. 遥测连接 (telemetry-in.battlenet.com.cn) 不是游戏连接")
+            print("2. 需要在游戏中才有游戏连接")
+            print("3. 游戏连接的特征是: processPath包含Hearthstone且host为空")
         }
     }
     
@@ -496,5 +546,295 @@ class NetworkManager: ObservableObject {
                 print("成功终止炉石连接: \(id)")
             }
         }.resume()
+    }
+    
+    // MARK: - Direct Process Connection Killing
+    
+    private func killHearthstoneDirectConnections() {
+        print("尝试直接终止炉石进程网络连接...")
+        
+        // First, get Hearthstone PID
+        Task {
+            if let pid = await getHearthstonePID() {
+                print("找到炉石进程 PID: \(pid)")
+                await killProcessConnections(pid: pid)
+            } else {
+                print("未找到炉石进程")
+                DispatchQueue.main.async {
+                    self.lastActionStatus = "未找到炉石进程"
+                }
+            }
+        }
+    }
+    
+    private func getHearthstonePID() async -> Int? {
+        return await withCheckedContinuation { continuation in
+            let task = Process()
+            task.launchPath = "/usr/bin/pgrep"
+            task.arguments = ["-f", "Hearthstone"]
+            
+            let pipe = Pipe()
+            task.standardOutput = pipe
+            
+            task.terminationHandler = { process in
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: data, encoding: .utf8) ?? ""
+                
+                if process.terminationStatus == 0, 
+                   let pidString = output.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\n").first,
+                   let pid = Int(pidString) {
+                    continuation.resume(returning: pid)
+                } else {
+                    continuation.resume(returning: nil)
+                }
+            }
+            
+            do {
+                try task.run()
+            } catch {
+                print("获取炉石进程 PID 失败: \(error)")
+                continuation.resume(returning: nil)
+            }
+        }
+    }
+    
+    private func killProcessConnections(pid: Int) async {
+        await withCheckedContinuation { continuation in
+            let task = Process()
+            task.launchPath = "/usr/sbin/lsof"
+            task.arguments = ["-p", String(pid), "-i"]
+            
+            let pipe = Pipe()
+            task.standardOutput = pipe
+            
+            task.terminationHandler = { process in
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: data, encoding: .utf8) ?? ""
+                
+                print("炉石网络连接:")
+                print(output)
+                
+                // Parse connections and extract game server IPs
+                let lines = output.components(separatedBy: .newlines)
+                var gameConnections = 0
+                var gameServerIPs: [String] = []
+                
+                for line in lines {
+                    print("检查连接行: \(line)")
+                    
+                    // Look for ESTABLISHED connections to game servers
+                    if line.contains("ESTABLISHED") && (line.contains("bnetgame") || line.contains(":1119") || line.contains("118.31.18.157") || line.contains("114.55.81.211")) {
+                        print("发现游戏连接: \(line)")
+                        gameConnections += 1
+                        
+                        // Extract IP address from line like: "TCP 192.168.0.110:61918->118.31.18.157:bnetgame"
+                        if let range = line.range(of: "->") {
+                            let afterArrow = String(line[range.upperBound...])
+                            if let colonIndex = afterArrow.firstIndex(of: ":") {
+                                let serverIP = String(afterArrow[..<colonIndex])
+                                gameServerIPs.append(serverIP)
+                                print("提取到游戏服务器 IP: \(serverIP)")
+                            }
+                        }
+                    }
+                }
+                
+                print("总共检查了 \(lines.count) 行连接")
+                print("找到 \(gameConnections) 个游戏连接")
+                print("游戏服务器 IPs: \(gameServerIPs)")
+                
+                DispatchQueue.main.async {
+                    if gameConnections > 0 {
+                        self.lastActionStatus = "找到 \(gameConnections) 个游戏连接，全网络阻断 20 秒"
+                        // Try to temporarily block these IPs
+                        Task {
+                            await self.temporaryBlockGameServers(gameServerIPs)
+                        }
+                    } else {
+                        self.lastActionStatus = "未发现直连游戏连接，仍执行全网络阻断"
+                        // Even if no game connections found, still do full block
+                        Task {
+                            await self.temporaryBlockGameServers(["0.0.0.0"]) // Dummy IP to trigger full block
+                        }
+                    }
+                }
+                
+                continuation.resume()
+            }
+            
+            do {
+                try task.run()
+            } catch {
+                print("查看进程网络连接失败: \(error)")
+                DispatchQueue.main.async {
+                    self.lastActionStatus = "查看网络连接失败: \(error.localizedDescription)"
+                }
+                continuation.resume()
+            }
+        }
+    }
+    
+    private func temporaryBlockGameServers(_ serverIPs: [String]) async {
+        // Execute full block only once, regardless of how many IPs found
+        print("执行全网络阻断，发现游戏服务器: \(serverIPs)")
+        await blockAndUnblockServer("")
+    }
+    
+    private func blockAndUnblockServer(_ serverIP: String) async {
+        print("全网络阻断 20 秒...")
+        
+        // Get password from UserDefaults
+        guard let password = UserDefaults.standard.string(forKey: "adminPassword") else {
+            DispatchQueue.main.async {
+                self.lastActionStatus = "请先设置管理员密码"
+            }
+            return
+        }
+        
+        let blockScript = """
+        echo "[A] 正在阻断所有 TCP 出站连接..."
+        
+        # 启用pfctl
+        echo "\(password)" | sudo -S pfctl -e > /dev/null 2>&1
+        
+        # 创建阻断规则
+        echo "block drop out quick proto tcp from any to any" | echo "\(password)" | sudo -S tee /etc/pf.blockall.conf > /dev/null
+        
+        # 加载阻断规则
+        echo "\(password)" | sudo -S pfctl -f /etc/pf.blockall.conf > /dev/null 2>&1
+        
+        echo "[B] 网络已阻断，20 秒后恢复..."
+        
+        # 等待20秒
+        sleep 20
+        
+        # 恢复网络 - 加载原始配置
+        echo "\(password)" | sudo -S pfctl -f /etc/pf.conf > /dev/null 2>&1
+        
+        echo "[C] 网络已恢复"
+        """
+        
+        await executeBlockScript(blockScript)
+    }
+    
+    private func useNetworkSetupMethod() async {
+        print("使用网络接口断开方法 (20秒)...")
+        
+        await withCheckedContinuation { continuation in
+            // Disconnect network
+            let disconnectScript = """
+            networksetup -setairportpower en0 off
+            """
+            
+            executeNetworkCommand(disconnect: true) { success in
+                if success {
+                    print("网络已断开，20秒后自动重连...")
+                    
+                    DispatchQueue.main.async {
+                        self.lastActionStatus = "网络已断开，20秒后自动重连"
+                    }
+                    
+                    // Wait 20 seconds then reconnect
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 20) {
+                        self.executeNetworkCommand(disconnect: false) { reconnectSuccess in
+                            DispatchQueue.main.async {
+                                if reconnectSuccess {
+                                    self.lastActionStatus = "网络断开20秒完成，已自动重连"
+                                } else {
+                                    self.lastActionStatus = "网络重连失败"
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        self.lastActionStatus = "网络断开失败"
+                    }
+                }
+                continuation.resume()
+            }
+        }
+    }
+    
+    private func executeAppleScript(_ script: String) async {
+        await withCheckedContinuation { continuation in
+            let task = Process()
+            task.launchPath = "/usr/bin/osascript"
+            task.arguments = ["-e", script]
+            
+            let pipe = Pipe()
+            task.standardOutput = pipe
+            task.standardError = pipe
+            
+            task.terminationHandler = { process in
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: data, encoding: .utf8) ?? ""
+                
+                print("AppleScript 执行结果: \(output)")
+                
+                DispatchQueue.main.async {
+                    if output.contains("网络阻断完成") || process.terminationStatus == 0 {
+                        self.lastActionStatus = "网络阻断完成，已自动恢复"
+                    } else if output.contains("User cancelled") {
+                        self.lastActionStatus = "用户取消了权限请求"
+                    } else {
+                        self.lastActionStatus = "网络阻断失败: \(output)"
+                    }
+                }
+                
+                continuation.resume()
+            }
+            
+            do {
+                try task.run()
+            } catch {
+                print("执行 AppleScript 失败: \(error)")
+                DispatchQueue.main.async {
+                    self.lastActionStatus = "AppleScript 执行失败"
+                }
+                continuation.resume()
+            }
+        }
+    }
+    
+    private func executeBlockScript(_ script: String) async {
+        await withCheckedContinuation { continuation in
+            let task = Process()
+            task.launchPath = "/bin/bash"
+            task.arguments = ["-c", script]
+            
+            let pipe = Pipe()
+            task.standardOutput = pipe
+            task.standardError = pipe
+            
+            task.terminationHandler = { process in
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: data, encoding: .utf8) ?? ""
+                
+                print("阻断脚本执行结果: \(output)")
+                
+                DispatchQueue.main.async {
+                    if output.contains("需要管理员权限") {
+                        self.lastActionStatus = "需要管理员权限执行全网络阻断"
+                    } else if output.contains("网络已恢复") {
+                        self.lastActionStatus = "网络阻断完成，已自动恢复"
+                    } else {
+                        self.lastActionStatus = "全网络阻断执行中..."
+                    }
+                }
+                
+                continuation.resume()
+            }
+            
+            do {
+                try task.run()
+            } catch {
+                print("执行阻断脚本失败: \(error)")
+                DispatchQueue.main.async {
+                    self.lastActionStatus = "阻断脚本执行失败"
+                }
+                continuation.resume()
+            }
+        }
     }
 }

@@ -11,6 +11,7 @@ struct ContentView: View {
     @StateObject private var networkManager = NetworkManager()
     @State private var isMonitoring = false
     @State private var showingClashSetup = false
+    @State private var showingPasswordSetup = false
     
     var body: some View {
         VStack(spacing: 20) {
@@ -39,13 +40,11 @@ struct ContentView: View {
                     Text(networkManager.clashConfigured ? "已配置" : "未配置")
                         .foregroundColor(networkManager.clashConfigured ? .green : .orange)
                     
-                    if !networkManager.clashConfigured {
-                        Button("配置") {
-                            showingClashSetup = true
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                    Button(networkManager.clashConfigured ? "重新配置" : "配置") {
+                        showingClashSetup = true
                     }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
                 
                 HStack {
@@ -53,6 +52,19 @@ struct ContentView: View {
                     Spacer()
                     Text(isMonitoring ? "监控中" : "未监控")
                         .foregroundColor(isMonitoring ? .green : .gray)
+                }
+                
+                HStack {
+                    Text("管理员密码:")
+                    Spacer()
+                    Text(networkManager.hasAdminPassword ? "已设置" : "未设置")
+                        .foregroundColor(networkManager.hasAdminPassword ? .green : .orange)
+                    
+                    Button(networkManager.hasAdminPassword ? "修改" : "设置") {
+                        showingPasswordSetup = true
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
             }
             .padding()
@@ -79,7 +91,13 @@ struct ContentView: View {
                 }
                 
                 Button(action: {
-                    networkManager.toggleConnection()
+                    if !networkManager.hearthstoneRunning {
+                        networkManager.showUserMessage("请先启动炉石传说游戏")
+                    } else if !networkManager.hasAdminPassword && networkManager.clashConfigured {
+                        networkManager.showUserMessage("请先设置管理员密码")
+                    } else {
+                        networkManager.toggleConnection()
+                    }
                 }) {
                     Text(networkManager.clashConfigured ? "断开炉石连接" : (networkManager.isConnected ? "手动断网" : "手动连网"))
                         .font(.headline)
@@ -89,13 +107,23 @@ struct ContentView: View {
                         .background(networkManager.clashConfigured ? Color.red : (networkManager.isConnected ? Color.orange : Color.green))
                         .cornerRadius(10)
                 }
-                .disabled(!networkManager.hearthstoneRunning)
             }
             
-            Text(networkManager.clashConfigured ? "使用 Clash 精确控制炉石连接，无需管理员权限" : "注意: 需要管理员权限来控制网络连接")
-                .font(.caption)
-                .foregroundColor(.gray)
-                .multilineTextAlignment(.center)
+            VStack(spacing: 8) {
+                Text(networkManager.lastActionStatus.isEmpty ? " " : networkManager.lastActionStatus)
+                    .font(.caption)
+                    .foregroundColor(.blue)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: 16)
+                
+                Text(networkManager.clashConfigured ? "使用 Clash 精确控制炉石连接，无需管理员权限" : "注意: 需要管理员权限来控制网络连接")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal)
         }
         .padding()
         .onAppear {
@@ -103,6 +131,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingClashSetup) {
             ClashSetupView(networkManager: networkManager)
+        }
+        .sheet(isPresented: $showingPasswordSetup) {
+            PasswordSetupView(networkManager: networkManager)
         }
     }
 }
@@ -157,6 +188,116 @@ struct ClashSetupView: View {
                     Text("请确保 ClashX Pro 已启用 'Allow connect from LAN'")
                     Text("如果连接失败，请尝试不同的端口")
                 }
+            }
+        }
+    }
+}
+
+struct PasswordSetupView: View {
+    @ObservedObject var networkManager: NetworkManager
+    @State private var password = ""
+    @State private var showPassword = false
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            // Header
+            HStack {
+                Button("取消") {
+                    dismiss()
+                }
+                Spacer()
+                Text("管理员密码设置")
+                    .font(.headline)
+                Spacer()
+                Button("保存") {
+                    networkManager.setAdminPassword(password)
+                    dismiss()
+                }
+                .disabled(password.isEmpty)
+            }
+            .padding()
+            
+            // Password input section
+            VStack(alignment: .leading, spacing: 10) {
+                Text("密码设置")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                
+                HStack {
+                    Group {
+                        if showPassword {
+                            TextField("请输入管理员密码", text: $password)
+                        } else {
+                            SecureField("请输入管理员密码", text: $password)
+                        }
+                    }
+                    .textFieldStyle(.roundedBorder)
+                    
+                    Button(action: {
+                        showPassword.toggle()
+                    }) {
+                        Image(systemName: showPassword ? "eye.slash" : "eye")
+                            .foregroundColor(.gray)
+                    }
+                }
+            }
+            .padding(.horizontal)
+            
+            // Current password section
+            if networkManager.hasAdminPassword {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("当前密码")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    
+                    HStack {
+                        Group {
+                            if showPassword, let currentPassword = networkManager.getAdminPassword() {
+                                Text(currentPassword)
+                                    .font(.system(.body, design: .monospaced))
+                            } else {
+                                Text("••••••••")
+                                    .font(.system(.body, design: .monospaced))
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 12)
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(8)
+                        
+                        Button("清除") {
+                            networkManager.clearAdminPassword()
+                            password = ""
+                            dismiss()
+                        }
+                        .foregroundColor(.red)
+                    }
+                }
+                .padding(.horizontal)
+            }
+            
+            // Description section
+            VStack(alignment: .leading, spacing: 8) {
+                Text("说明")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("• 此密码用于执行需要管理员权限的网络阻断操作")
+                    Text("• 密码将安全地保存在本地，不会上传到任何服务器")
+                }
+                .font(.caption)
+                .foregroundColor(.gray)
+            }
+            .padding(.horizontal)
+            
+            Spacer()
+        }
+        .onAppear {
+            if let currentPassword = networkManager.getAdminPassword() {
+                password = currentPassword
             }
         }
     }

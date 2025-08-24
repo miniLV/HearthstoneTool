@@ -2,7 +2,7 @@
 //  HearthstoneToolApp.swift
 //  HearthstoneTool
 //
-//  Created by tyrion.liang on 2025/8/23.
+//  Created by tyrion.liang on 20x25/8/23.
 //
 
 import SwiftUI
