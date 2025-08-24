@@ -10,7 +10,6 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var networkManager = NetworkManager()
     @State private var isMonitoring = false
-    @State private var showingClashSetup = false
     @State private var showingPasswordSetup = false
     
     var body: some View {
@@ -32,19 +31,6 @@ struct ContentView: View {
                     Spacer()
                     Text(networkManager.isConnected ? "已连接" : "已断开")
                         .foregroundColor(networkManager.isConnected ? .green : .red)
-                }
-                
-                HStack {
-                    Text("Clash 状态:")
-                    Spacer()
-                    Text(networkManager.clashConfigured ? "已配置" : "未配置")
-                        .foregroundColor(networkManager.clashConfigured ? .green : .orange)
-                    
-                    Button(networkManager.clashConfigured ? "重新配置" : "配置") {
-                        showingClashSetup = true
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
                 }
                 
                 HStack {
@@ -93,18 +79,18 @@ struct ContentView: View {
                 Button(action: {
                     if !networkManager.hearthstoneRunning {
                         networkManager.showUserMessage("请先启动炉石传说游戏")
-                    } else if !networkManager.hasAdminPassword && networkManager.clashConfigured {
+                    } else if !networkManager.hasAdminPassword {
                         networkManager.showUserMessage("请先设置管理员密码")
                     } else {
                         networkManager.toggleConnection()
                     }
                 }) {
-                    Text(networkManager.isDisconnecting ? "重连中..." : (networkManager.clashConfigured ? "断开炉石连接" : (networkManager.isConnected ? "手动断网" : "手动连网")))
+                    Text(networkManager.isDisconnecting ? "执行中..." : "断开炉石连接")
                         .font(.headline)
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(networkManager.isDisconnecting ? Color.gray : (networkManager.clashConfigured ? Color.red : (networkManager.isConnected ? Color.orange : Color.green)))
+                        .background(networkManager.isDisconnecting ? Color.gray : Color.red)
                         .cornerRadius(10)
                 }
                 .disabled(networkManager.isDisconnecting)
@@ -118,7 +104,7 @@ struct ContentView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(minHeight: 16)
                 
-                Text(networkManager.clashConfigured ? "使用 Clash 精确控制炉石连接，无需管理员权限" : "注意: 需要管理员权限来控制网络连接")
+                Text("注意: 需要管理员权限来执行网络阻断")
                     .font(.caption)
                     .foregroundColor(.gray)
                     .multilineTextAlignment(.center)
@@ -130,69 +116,12 @@ struct ContentView: View {
         .onAppear {
             networkManager.checkHearthstoneStatus()
         }
-        .sheet(isPresented: $showingClashSetup) {
-            ClashSetupView(networkManager: networkManager)
-        }
         .sheet(isPresented: $showingPasswordSetup) {
             PasswordSetupView(networkManager: networkManager)
         }
     }
 }
 
-struct ClashSetupView: View {
-    @ObservedObject var networkManager: NetworkManager
-    @State private var controller = "http://127.0.0.1:53378"
-    @State private var secret = "test!123"
-    @Environment(\.dismiss) private var dismiss
-    
-    var body: some View {
-        VStack {
-            HStack {
-                Button("取消") {
-                    dismiss()
-                }
-                Spacer()
-                Text("Clash 配置")
-                    .font(.headline)
-                Spacer()
-                Button("保存并测试") {
-                    networkManager.setManualClashConfig(controller: controller, secret: secret)
-                    dismiss()
-                }
-            }
-            .padding()
-            
-            Form {
-                Section("Clash External Controller 配置") {
-                    TextField("Controller URL", text: $controller)
-                        .textFieldStyle(.roundedBorder)
-                    TextField("Secret", text: $secret)
-                        .textFieldStyle(.roundedBorder)
-                }
-                
-                Section("常用端口") {
-                    Button("53378 (ClashX Pro 实际端口)") {
-                        controller = "http://127.0.0.1:53378"
-                    }
-                    Button("9090 (标准默认)") {
-                        controller = "http://127.0.0.1:9090"
-                    }
-                    Button("8080") {
-                        controller = "http://127.0.0.1:8080"
-                    }
-                    Button("9091") {
-                        controller = "http://127.0.0.1:9091"
-                    }
-                }
-                
-                Section("说明") {
-                    Text("请确保 ClashX Pro 已启用 'Allow connect from LAN'")
-                    Text("如果连接失败，请尝试不同的端口")
-                }
-            }
-        }
-    }
-}
 
 struct PasswordSetupView: View {
     @ObservedObject var networkManager: NetworkManager
