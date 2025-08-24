@@ -9,7 +9,6 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var networkManager = NetworkManager()
-    @State private var isMonitoring = false
     @State private var showingPasswordSetup = false
     
     var body: some View {
@@ -33,12 +32,6 @@ struct ContentView: View {
                         .foregroundColor(networkManager.isConnected ? .green : .red)
                 }
                 
-                HStack {
-                    Text("监控状态:")
-                    Spacer()
-                    Text(isMonitoring ? "监控中" : "未监控")
-                        .foregroundColor(isMonitoring ? .green : .gray)
-                }
                 
                 HStack {
                     Text("管理员密码:")
@@ -59,30 +52,18 @@ struct ContentView: View {
             
             VStack(spacing: 10) {
                 Button(action: {
-                    if isMonitoring {
-                        networkManager.stopMonitoring()
-                        isMonitoring = false
-                    } else {
-                        networkManager.startMonitoring()
-                        isMonitoring = true
-                    }
-                }) {
-                    Text(isMonitoring ? "停止监控" : "开始监控")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(isMonitoring ? Color.red : Color.blue)
-                        .cornerRadius(10)
-                }
-                
-                Button(action: {
-                    if !networkManager.hearthstoneRunning {
-                        networkManager.showUserMessage("请先启动炉石传说游戏")
-                    } else if !networkManager.hasAdminPassword {
-                        networkManager.showUserMessage("请先设置管理员密码")
-                    } else {
-                        networkManager.toggleConnection()
+                    // 实时检查炉石状态
+                    networkManager.checkHearthstoneStatus()
+                    
+                    // 延迟一点检查结果，确保状态更新完成
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        if !networkManager.hearthstoneRunning {
+                            networkManager.showUserMessage("请先启动炉石传说游戏")
+                        } else if !networkManager.hasAdminPassword {
+                            networkManager.showUserMessage("请先设置管理员密码")
+                        } else {
+                            networkManager.toggleConnection()
+                        }
                     }
                 }) {
                     Text(networkManager.isDisconnecting ? "执行中..." : "断开炉石连接")

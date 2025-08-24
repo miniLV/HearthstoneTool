@@ -19,7 +19,6 @@ class NetworkManager: ObservableObject {
     
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "NetworkMonitor")
-    private var hearthstoneTimer: Timer?
     private var disconnectTimer: Timer?
     private var reconnectTimer: Timer?
     
@@ -41,7 +40,6 @@ class NetworkManager: ObservableObject {
     
     deinit {
         monitor.cancel()
-        hearthstoneTimer?.invalidate()
         disconnectTimer?.invalidate()
         reconnectTimer?.invalidate()
     }
@@ -55,20 +53,6 @@ class NetworkManager: ObservableObject {
         monitor.start(queue: queue)
     }
     
-    func startMonitoring() {
-        hearthstoneTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.checkHearthstoneStatus()
-        }
-    }
-    
-    func stopMonitoring() {
-        hearthstoneTimer?.invalidate()
-        hearthstoneTimer = nil
-        disconnectTimer?.invalidate()
-        disconnectTimer = nil
-        reconnectTimer?.invalidate()
-        reconnectTimer = nil
-    }
     
     func checkHearthstoneStatus() {
         Task {
