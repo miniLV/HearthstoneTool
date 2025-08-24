@@ -5,6 +5,9 @@
 
 export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
 
+# 获取断网时长参数，默认20秒
+DURATION=${1:-20}
+
 echo "[A] 正在阻断所有 TCP 出站连接..."
 
 # 启用pfctl
@@ -16,10 +19,10 @@ echo "${SUDO_PASSWORD}" | /usr/bin/sudo -S /bin/bash -c '/bin/echo "block drop o
 # 加载阻断规则
 echo "${SUDO_PASSWORD}" | /usr/bin/sudo -S /sbin/pfctl -f /etc/pf.blockall.conf > /dev/null 2>&1
 
-echo "[B] 网络已阻断，20 秒后恢复..."
+echo "[B] 网络已阻断，${DURATION} 秒后恢复..."
 
-# 等待20秒
-/bin/sleep 20
+# 等待指定时间
+/bin/sleep "${DURATION}"
 
 # 恢复网络 - 加载原始配置
 echo "${SUDO_PASSWORD}" | /usr/bin/sudo -S /sbin/pfctl -f /etc/pf.conf > /dev/null 2>&1

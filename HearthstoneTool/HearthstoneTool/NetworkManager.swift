@@ -16,11 +16,14 @@ class NetworkManager: ObservableObject {
     @Published var lastActionStatus = ""
     @Published var hasAdminPassword = false
     @Published var isDisconnecting = false // 正在执行断开操作
+    @Published var disconnectProgress: Double = 0.0 // 断网进度 0.0-1.0
+    @Published var remainingTime: Int = 0 // 剩余时间（秒）
     
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "NetworkMonitor")
     private var disconnectTimer: Timer?
     private var reconnectTimer: Timer?
+    private var progressTimer: Timer?
     
     private let hearthstoneProcessNames = [
         "Hearthstone",
@@ -42,6 +45,7 @@ class NetworkManager: ObservableObject {
         monitor.cancel()
         disconnectTimer?.invalidate()
         reconnectTimer?.invalidate()
+        progressTimer?.invalidate()
     }
     
     private func setupNetworkMonitoring() {
@@ -95,17 +99,21 @@ class NetworkManager: ObservableObject {
         }
     }
     
-    func toggleConnection() {
+    func toggleConnection(duration: Int = 20) {
         if isConnected && !isDisconnecting {
             DispatchQueue.main.async {
                 self.isDisconnecting = true
+                self.disconnectProgress = 0.0
+                self.remainingTime = duration
                 self.lastActionStatus = "正在执行网络阻断..."
             }
             
             Task {
-                await executeNetworkBlockScript()
+                await executeNetworkBlockScript(duration: duration)
                 DispatchQueue.main.async {
                     self.isDisconnecting = false
+                    self.disconnectProgress = 0.0
+                    self.remainingTime = 0
                 }
             }
         }
@@ -276,8 +284,8 @@ class NetworkManager: ObservableObject {
     }
     
     
-    private func executeNetworkBlockScript() async {
-        print("执行外部网络阻断脚本...")
+    private func executeNetworkBlockScript(duration: Int) async {
+        print("执行外部网络阻断脚本，时长: \(duration) 秒")
         
         // Get password from Keychain
         guard let password = loadPasswordFromKeychain() else {
@@ -299,7 +307,7 @@ class NetworkManager: ObservableObject {
         await withCheckedContinuation { continuation in
             let task = Process()
             task.launchPath = "/bin/bash"
-            task.arguments = [scriptPath]
+            task.arguments = [scriptPath, String(duration)]
             task.environment = ["SUDO_PASSWORD": password]
             
             let pipe = Pipe()
@@ -318,7 +326,9 @@ class NetworkManager: ObservableObject {
                         if output.contains("[A] 正在阻断") {
                             self.lastActionStatus = "正在阻断所有TCP连接..."
                         } else if output.contains("[B] 网络已阻断") {
-                            self.lastActionStatus = "网络已阻断，20秒后自动恢复..."
+                            // 网络阻断开始，启动进度跟踪定时器
+                            self.lastActionStatus = "网络已阻断，\(duration)秒后自动恢复..."
+                            self.startProgressTimer(duration: duration)
                         } else if output.contains("[C] 网络已恢复") {
                             self.lastActionStatus = "网络阻断完成，已自动恢复"
                         }
@@ -336,10 +346,18 @@ class NetworkManager: ObservableObject {
                 print("脚本状态码: \(process.terminationStatus)")
                 
                 DispatchQueue.main.async {
+                    // 停止进度定时器
+                    self.progressTimer?.invalidate()
+                    self.progressTimer = nil
+                    
                     if process.terminationStatus == 0 {
                         self.lastActionStatus = "网络阻断脚本执行完成"
+                        self.disconnectProgress = 1.0
+                        self.remainingTime = 0
                     } else {
                         self.lastActionStatus = "网络阻断脚本执行失败，状态码: \(process.terminationStatus)"
+                        self.disconnectProgress = 0.0
+                        self.remainingTime = 0
                     }
                 }
                 
@@ -354,6 +372,30 @@ class NetworkManager: ObservableObject {
                     self.lastActionStatus = "执行网络阻断脚本失败"
                 }
                 continuation.resume()
+            }
+        }
+    }
+    
+    private func startProgressTimer(duration: Int) {
+        var elapsed = 0
+        let totalDuration = duration
+        
+        progressTimer?.invalidate()
+        progressTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
+            elapsed += 1
+            let remaining = max(0, totalDuration - elapsed)
+            let progress = min(1.0, Double(elapsed) / Double(totalDuration))
+            
+            DispatchQueue.main.async {
+                self?.remainingTime = remaining
+                self?.disconnectProgress = progress
+            }
+            
+            if elapsed >= totalDuration {
+                timer.invalidate()
+                DispatchQueue.main.async {
+                    self?.progressTimer = nil
+                }
             }
         }
     }

@@ -10,6 +10,7 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var networkManager = NetworkManager()
     @State private var showingPasswordSetup = false
+    @State private var disconnectDuration = 20 // 默认20秒
     
     var body: some View {
         VStack(spacing: 20) {
@@ -45,6 +46,17 @@ struct ContentView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
+                
+                HStack {
+                    Text("断网时长:")
+                    Spacer()
+                    TextField("秒", value: $disconnectDuration, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 60)
+                        .multilineTextAlignment(.center)
+                    Text("秒")
+                        .foregroundColor(.gray)
+                }
             }
             .padding()
             .background(Color.gray.opacity(0.1))
@@ -62,17 +74,31 @@ struct ContentView: View {
                         } else if !networkManager.hasAdminPassword {
                             networkManager.showUserMessage("请先设置管理员密码")
                         } else {
-                            networkManager.toggleConnection()
+                            networkManager.toggleConnection(duration: disconnectDuration)
                         }
                     }
                 }) {
-                    Text(networkManager.isDisconnecting ? "执行中..." : "断开炉石连接")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(networkManager.isDisconnecting ? Color.gray : Color.red)
-                        .cornerRadius(10)
+                    VStack(spacing: 8) {
+                        if networkManager.isDisconnecting {
+                            HStack {
+                                Text("断网中...")
+                                Spacer()
+                                Text("\(networkManager.remainingTime)秒")
+                            }
+                            .font(.headline)
+                            
+                            ProgressView(value: networkManager.disconnectProgress)
+                                .progressViewStyle(LinearProgressViewStyle(tint: .white))
+                        } else {
+                            Text("断开炉石连接")
+                                .font(.headline)
+                        }
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(networkManager.isDisconnecting ? Color.gray : Color.red)
+                    .cornerRadius(10)
                 }
                 .disabled(networkManager.isDisconnecting)
             }
