@@ -8,6 +8,7 @@
 import Foundation
 import Network
 import Combine
+import Security
 
 class NetworkManager: ObservableObject {
     @Published var isConnected = true
@@ -43,7 +44,7 @@ class NetworkManager: ObservableObject {
     }
     
     private func checkAdminPassword() {
-        hasAdminPassword = UserDefaults.standard.string(forKey: "adminPassword") != nil
+        hasAdminPassword = loadPasswordFromKeychain() != nil
     }
     
     deinit {
@@ -128,7 +129,7 @@ class NetworkManager: ObservableObject {
                 }
                 
                 Task {
-                    await blockAndUnblockServer("")
+                    await executeNetworkBlockScript()
                     DispatchQueue.main.async {
                         self.isDisconnecting = false
                     }
@@ -234,25 +235,88 @@ class NetworkManager: ObservableObject {
     }
     
     func setAdminPassword(_ password: String) {
-        UserDefaults.standard.set(password, forKey: "adminPassword")
-        checkAdminPassword()
-        lastActionStatus = "管理员密码已保存"
+        if savePasswordToKeychain(password) {
+            checkAdminPassword()
+            lastActionStatus = "管理员密码已保存到钥匙串"
+        } else {
+            lastActionStatus = "密码保存到钥匙串失败"
+        }
     }
     
     func clearAdminPassword() {
-        UserDefaults.standard.removeObject(forKey: "adminPassword")
+        deletePasswordFromKeychain()
         checkAdminPassword()
-        lastActionStatus = "管理员密码已清除"
+        lastActionStatus = "管理员密码已从钥匙串清除"
     }
     
     func getAdminPassword() -> String? {
-        return UserDefaults.standard.string(forKey: "adminPassword")
+        return loadPasswordFromKeychain()
     }
     
     func showUserMessage(_ message: String) {
         DispatchQueue.main.async {
             self.lastActionStatus = message
         }
+    }
+    
+    // MARK: - Keychain Operations
+    
+    private func savePasswordToKeychain(_ password: String) -> Bool {
+        let service = "HearthstoneTool"
+        let account = "adminPassword"
+        
+        // 删除旧密码
+        deletePasswordFromKeychain()
+        
+        let passwordData = password.data(using: .utf8)!
+        
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: passwordData,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+        
+        let status = SecItemAdd(query as CFDictionary, nil)
+        return status == errSecSuccess
+    }
+    
+    private func loadPasswordFromKeychain() -> String? {
+        let service = "HearthstoneTool"
+        let account = "adminPassword"
+        
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        
+        if status == errSecSuccess,
+           let passwordData = result as? Data,
+           let password = String(data: passwordData, encoding: .utf8) {
+            return password
+        }
+        
+        return nil
+    }
+    
+    private func deletePasswordFromKeychain() {
+        let service = "HearthstoneTool"
+        let account = "adminPassword"
+        
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        
+        SecItemDelete(query as CFDictionary)
     }
     
     private func loadClashConfig() {
@@ -684,8 +748,8 @@ class NetworkManager: ObservableObject {
     private func blockAndUnblockServer(_ serverIP: String) async {
         print("全网络阻断 20 秒...")
         
-        // Get password from UserDefaults
-        guard let password = UserDefaults.standard.string(forKey: "adminPassword") else {
+        // Get password from Keychain
+        guard let password = loadPasswordFromKeychain() else {
             DispatchQueue.main.async {
                 self.lastActionStatus = "请先设置管理员密码"
             }
@@ -693,29 +757,32 @@ class NetworkManager: ObservableObject {
         }
         
         let blockScript = """
+        export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+        export SUDO_ASKPASS=/bin/false
+        
         echo "[A] 正在阻断所有 TCP 出站连接..."
         
         # 启用pfctl
-        sudo pfctl -e > /dev/null 2>&1
+        echo "\(password)" | /usr/bin/sudo -S /sbin/pfctl -e > /dev/null 2>&1
         
-        # 创建阻断规则
-        echo "block drop out quick proto tcp from any to any" | sudo tee /etc/pf.blockall.conf > /dev/null
+        # 创建阻断规则 - 先创建规则，再用sudo写入
+        echo "\(password)" | /usr/bin/sudo -S /bin/bash -c '/bin/echo "block drop out quick proto tcp from any to any" > /etc/pf.blockall.conf'
         
         # 加载阻断规则
-        sudo pfctl -f /etc/pf.blockall.conf > /dev/null 2>&1
+        echo "\(password)" | /usr/bin/sudo -S /sbin/pfctl -f /etc/pf.blockall.conf > /dev/null 2>&1
         
         echo "[B] 网络已阻断，20 秒后恢复..."
         
         # 等待20秒
-        sleep 20
+        /bin/sleep 20
         
         # 恢复网络 - 加载原始配置
-        sudo pfctl -f /etc/pf.conf > /dev/null 2>&1
+        echo "\(password)" | /usr/bin/sudo -S /sbin/pfctl -f /etc/pf.conf > /dev/null 2>&1
         
         echo "[C] 网络已恢复"
         """
         
-        await executeAppleScriptSudo(blockScript)
+        await executeBlockScript(blockScript)
     }
     
     private func useNetworkSetupMethod() async {
@@ -835,12 +902,19 @@ class NetworkManager: ObservableObject {
                 let output = String(data: data, encoding: .utf8) ?? ""
                 
                 print("阻断脚本执行完成: \(output)")
+                print("脚本执行状态码: \(process.terminationStatus)")
                 
                 DispatchQueue.main.async {
-                    if output.contains("需要管理员权限") {
-                        self.lastActionStatus = "需要管理员权限执行全网络阻断"
-                    } else if !output.contains("[C] 网络已恢复") {
-                        self.lastActionStatus = "网络阻断执行完成"
+                    if output.contains("Sorry, try again") || output.contains("incorrect password") {
+                        self.lastActionStatus = "密码错误，请重新设置管理员密码"
+                    } else if output.contains("sudo: ") {
+                        self.lastActionStatus = "sudo执行失败: \(output)"
+                    } else if process.terminationStatus != 0 {
+                        self.lastActionStatus = "脚本执行失败，状态码: \(process.terminationStatus)"
+                    } else if output.contains("[C] 网络已恢复") {
+                        self.lastActionStatus = "网络阻断完成，已自动恢复"
+                    } else {
+                        self.lastActionStatus = "脚本执行完成，但可能有问题"
                     }
                 }
                 
@@ -859,11 +933,93 @@ class NetworkManager: ObservableObject {
         }
     }
     
-    private func executeAppleScriptSudo(_ script: String) async {
+    private func executeAppleScriptSudo(_ script: String, password: String) async {
         let appleScript = """
-        do shell script "\(script.replacingOccurrences(of: "\"", with: "\\\""))" with administrator privileges
+        do shell script "\(script.replacingOccurrences(of: "\"", with: "\\\""))" with administrator privileges password "\(password)"
         """
         
         await executeAppleScript(appleScript)
+    }
+    
+    private func executeNetworkBlockScript() async {
+        print("执行外部网络阻断脚本...")
+        
+        // Get password from Keychain
+        guard let password = loadPasswordFromKeychain() else {
+            DispatchQueue.main.async {
+                self.lastActionStatus = "请先设置管理员密码"
+            }
+            return
+        }
+        
+        // Get the script path relative to the app bundle
+        guard let scriptPath = Bundle.main.path(forResource: "network_block_script", ofType: "sh") else {
+            print("找不到 network_block_script.sh 文件")
+            DispatchQueue.main.async {
+                self.lastActionStatus = "找不到网络阻断脚本文件"
+            }
+            return
+        }
+        
+        await withCheckedContinuation { continuation in
+            let task = Process()
+            task.launchPath = "/bin/bash"
+            task.arguments = [scriptPath]
+            task.environment = ["SUDO_PASSWORD": password]
+            
+            let pipe = Pipe()
+            task.standardOutput = pipe
+            task.standardError = pipe
+            
+            // 实时读取输出
+            let outputHandle = pipe.fileHandleForReading
+            outputHandle.readabilityHandler = { handle in
+                let data = handle.availableData
+                if !data.isEmpty {
+                    let output = String(data: data, encoding: .utf8) ?? ""
+                    print("脚本输出: \(output)")
+                    
+                    DispatchQueue.main.async {
+                        if output.contains("[A] 正在阻断") {
+                            self.lastActionStatus = "正在阻断所有TCP连接..."
+                        } else if output.contains("[B] 网络已阻断") {
+                            self.lastActionStatus = "网络已阻断，20秒后自动恢复..."
+                        } else if output.contains("[C] 网络已恢复") {
+                            self.lastActionStatus = "网络阻断完成，已自动恢复"
+                        }
+                    }
+                }
+            }
+            
+            task.terminationHandler = { process in
+                outputHandle.readabilityHandler = nil
+                
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: data, encoding: .utf8) ?? ""
+                
+                print("脚本执行完成: \(output)")
+                print("脚本状态码: \(process.terminationStatus)")
+                
+                DispatchQueue.main.async {
+                    if process.terminationStatus == 0 {
+                        self.lastActionStatus = "网络阻断脚本执行完成"
+                    } else {
+                        self.lastActionStatus = "网络阻断脚本执行失败，状态码: \(process.terminationStatus)"
+                    }
+                }
+                
+                continuation.resume()
+            }
+            
+            do {
+                try task.run()
+            } catch {
+                print("执行脚本失败: \(error)")
+                DispatchQueue.main.async {
+                    self.lastActionStatus = "执行网络阻断脚本失败"
+                }
+                continuation.resume()
+            }
+        }
     }
 }
