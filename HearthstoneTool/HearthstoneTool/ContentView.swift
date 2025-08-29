@@ -199,6 +199,23 @@ struct PasswordSetupView: View {
                 .padding(.horizontal)
             }
             
+            // Exit app section
+            VStack(alignment: .leading, spacing: 10) {
+                Text("应用控制")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                
+                Button("退出应用") {
+                    exit(0)
+                }
+                .foregroundColor(.red)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(Color.red.opacity(0.1))
+                .cornerRadius(8)
+            }
+            .padding(.horizontal)
+            
             // Description section
             VStack(alignment: .leading, spacing: 8) {
                 Text("说明")
