@@ -40,6 +40,29 @@ Simple, secure, and efficient network control tool to help you quickly disconnec
 2. Download the latest `HearthstoneTool.dmg`
 3. Double-click the installer and drag the app to `Applications` folder
 
+#### ⚠️ Security Warning Handling
+Since the app is not signed by Apple, you'll encounter a security warning on first launch:
+
+**Step 1: Encounter Block Warning**
+```
+"HearthstoneTool" cannot be opened because Apple could not verify 
+"HearthstoneTool" is free of malware that may harm your Mac or 
+compromise your privacy.
+```
+
+**Step 2: Grant Permission**
+1. Open **System Preferences**
+2. Click **Security & Privacy**
+3. In the **General** tab, find:
+   ```
+   "HearthstoneTool" was blocked to protect your Mac.
+   ```
+4. Click **Open Anyway** button
+5. Click **Open** in the confirmation dialog
+
+**Step 3: Subsequent Launches**
+After completing the above authorization, the app will launch normally.
+
 ### Method 2: Build from Source
 ```bash
 # Clone repository
@@ -124,6 +147,12 @@ Contributions are welcome! Please follow these steps:
 - [ ] Support multi-language interface
 
 ## ❓ FAQ
+
+<details>
+<summary><strong>Q: App shows "cannot verify developer" - what to do?</strong></summary>
+<br>
+A: This is normal macOS security mechanism. Please follow the "Security Warning Handling" steps in installation guide: Go to System Preferences → Security & Privacy → Click "Open Anyway".
+</details>
 
 <details>
 <summary><strong>Q: Is it safe for the app to request admin password?</strong></summary>

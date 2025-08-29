@@ -40,6 +40,29 @@
 2. 下载最新版本的 `HearthstoneTool.dmg`
 3. 双击安装包，将应用拖拽到 `Applications` 文件夹
 
+#### ⚠️ 安全提示处理
+由于应用未经过Apple官方签名，首次运行时会遇到安全提示：
+
+**步骤1：遇到阻止提示**
+```
+"HearthstoneTool" cannot be opened because Apple could not verify 
+"HearthstoneTool" is free of malware that may harm your Mac or 
+compromise your privacy.
+```
+
+**步骤2：授权运行**
+1. 打开 **系统偏好设置** (System Preferences)
+2. 点击 **安全性与隐私** (Security & Privacy)
+3. 在 **通用** (General) 标签页中找到：
+   ```
+   "HearthstoneTool" was blocked to protect your Mac.
+   ```
+4. 点击 **仍要打开** (Open Anyway) 按钮
+5. 在弹出对话框中点击 **打开** (Open) 确认
+
+**步骤3：后续运行**
+完成上述授权后，应用就可以正常启动了。
+
 ### 方法二：从源码编译
 ```bash
 # 克隆仓库
@@ -124,6 +147,12 @@ HearthstoneTool 主要用于以下游戏场景：
 - [ ] 支持多语言界面
 
 ## ❓ 常见问题
+
+<details>
+<summary><strong>Q: 应用显示"无法验证开发者"怎么办？</strong></summary>
+<br>
+A: 这是正常的macOS安全机制。请按照安装说明中的"安全提示处理"步骤操作：进入系统偏好设置 → 安全性与隐私 → 点击"仍要打开"。
+</details>
 
 <details>
 <summary><strong>Q: 应用要求输入管理员密码是否安全？</strong></summary>
