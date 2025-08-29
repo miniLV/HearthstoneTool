@@ -118,6 +118,7 @@ struct PasswordSetupView: View {
     @ObservedObject var networkManager: NetworkManager
     @State private var password = ""
     @State private var showPassword = false
+    @State private var shortcutInput = ""
     @Environment(\.dismiss) private var dismiss
     
     var body: some View {
@@ -199,6 +200,39 @@ struct PasswordSetupView: View {
                 .padding(.horizontal)
             }
             
+            // Shortcut key configuration section
+            VStack(alignment: .leading, spacing: 10) {
+                Text("快捷键设置")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                
+                HStack {
+                    TextField("输入快捷键 (如: CMD+R)", text: $shortcutInput)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit {
+                            if !shortcutInput.isEmpty {
+                                networkManager.setShortcutKey(shortcutInput.uppercased())
+                            }
+                        }
+                    
+                    Button("设置") {
+                        if !shortcutInput.isEmpty {
+                            networkManager.setShortcutKey(shortcutInput.uppercased())
+                        }
+                    }
+                    .disabled(shortcutInput.isEmpty)
+                }
+                
+                Text("当前快捷键: \(networkManager.shortcutKey)")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                
+                Text("支持的修饰键: CMD, CTRL, OPT, SHIFT")
+                    .font(.caption2)
+                    .foregroundColor(.gray)
+            }
+            .padding(.horizontal)
+            
             // Exit app section
             VStack(alignment: .leading, spacing: 10) {
                 Text("应用控制")
@@ -237,6 +271,7 @@ struct PasswordSetupView: View {
             if let currentPassword = networkManager.getAdminPassword() {
                 password = currentPassword
             }
+            shortcutInput = networkManager.shortcutKey
         }
     }
 }

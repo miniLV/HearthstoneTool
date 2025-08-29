@@ -9,6 +9,7 @@ import Foundation
 import Network
 import Combine
 import Security
+import Carbon
 
 class NetworkManager: ObservableObject {
     @Published var isConnected = true
@@ -18,12 +19,14 @@ class NetworkManager: ObservableObject {
     @Published var isDisconnecting = false // 正在执行断开操作
     @Published var disconnectProgress: Double = 0.0 // 断网进度 0.0-1.0
     @Published var remainingTime: Int = 0 // 剩余时间（秒）
+    @Published var shortcutKey: String = "CMD+R" // 快捷键设置
     
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "NetworkMonitor")
     private var disconnectTimer: Timer?
     private var reconnectTimer: Timer?
     private var progressTimer: Timer?
+    private var hotKeyRef: EventHotKeyRef?
     
     private let hearthstoneProcessNames = [
         "Hearthstone",
@@ -35,6 +38,8 @@ class NetworkManager: ObservableObject {
     init() {
         setupNetworkMonitoring()
         checkAdminPassword()
+        loadShortcutKey()
+        setupGlobalHotkey()
     }
     
     private func checkAdminPassword() {
@@ -46,6 +51,7 @@ class NetworkManager: ObservableObject {
         disconnectTimer?.invalidate()
         reconnectTimer?.invalidate()
         progressTimer?.invalidate()
+        unregisterGlobalHotkey()
     }
     
     private func setupNetworkMonitoring() {
@@ -398,5 +404,165 @@ class NetworkManager: ObservableObject {
                 }
             }
         }
+    }
+    
+    // MARK: - Shortcut Key Management
+    
+    func setShortcutKey(_ shortcut: String) {
+        shortcutKey = shortcut
+        UserDefaults.standard.set(shortcut, forKey: "shortcutKey")
+        
+        // Re-register hotkey
+        unregisterGlobalHotkey()
+        setupGlobalHotkey()
+        
+        lastActionStatus = "快捷键已更新为 \(shortcut)"
+    }
+    
+    private func loadShortcutKey() {
+        shortcutKey = UserDefaults.standard.string(forKey: "shortcutKey") ?? "CMD+R"
+    }
+    
+    private func setupGlobalHotkey() {
+        guard let (keyCode, modifiers) = parseShortcutKey(shortcutKey) else {
+            print("无法解析快捷键: \(shortcutKey)")
+            return
+        }
+        
+        var hotKeyID = EventHotKeyID(signature: OSType("HSTL".fourCharCodeValue), id: 1)
+        
+        let status = RegisterEventHotKey(
+            UInt32(keyCode),
+            UInt32(modifiers),
+            hotKeyID,
+            GetEventDispatcherTarget(),
+            0,
+            &hotKeyRef
+        )
+        
+        if status == noErr {
+            print("全局快捷键注册成功: \(shortcutKey)")
+            
+            // Set up event handler
+            var eventSpec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: OSType(kEventHotKeyPressed))
+            InstallEventHandler(GetEventDispatcherTarget(), { (nextHandler, theEvent, userData) -> OSStatus in
+                let networkManager = Unmanaged<NetworkManager>.fromOpaque(userData!).takeUnretainedValue()
+                networkManager.triggerDisconnect()
+                return noErr
+            }, 1, &eventSpec, Unmanaged.passUnretained(self).toOpaque(), nil)
+        } else {
+            print("全局快捷键注册失败: \(status)")
+        }
+    }
+    
+    private func unregisterGlobalHotkey() {
+        if let hotKeyRef = hotKeyRef {
+            UnregisterEventHotKey(hotKeyRef)
+            self.hotKeyRef = nil
+        }
+    }
+    
+    private func parseShortcutKey(_ shortcut: String) -> (keyCode: Int, modifiers: Int)? {
+        let components = shortcut.components(separatedBy: "+")
+        var modifiers = 0
+        var keyCode: Int?
+        
+        for component in components {
+            let trimmed = component.trimmingCharacters(in: .whitespaces).uppercased()
+            switch trimmed {
+            case "CMD", "COMMAND":
+                modifiers |= cmdKey
+            case "CTRL", "CONTROL":
+                modifiers |= controlKey
+            case "OPT", "OPTION", "ALT":
+                modifiers |= optionKey
+            case "SHIFT":
+                modifiers |= shiftKey
+            default:
+                // Try to parse as key
+                if let code = keyCodeForString(trimmed) {
+                    keyCode = code
+                }
+            }
+        }
+        
+        guard let code = keyCode else { return nil }
+        return (code, modifiers)
+    }
+    
+    private func keyCodeForString(_ key: String) -> Int? {
+        switch key.uppercased() {
+        case "A": return kVK_ANSI_A
+        case "B": return kVK_ANSI_B
+        case "C": return kVK_ANSI_C
+        case "D": return kVK_ANSI_D
+        case "E": return kVK_ANSI_E
+        case "F": return kVK_ANSI_F
+        case "G": return kVK_ANSI_G
+        case "H": return kVK_ANSI_H
+        case "I": return kVK_ANSI_I
+        case "J": return kVK_ANSI_J
+        case "K": return kVK_ANSI_K
+        case "L": return kVK_ANSI_L
+        case "M": return kVK_ANSI_M
+        case "N": return kVK_ANSI_N
+        case "O": return kVK_ANSI_O
+        case "P": return kVK_ANSI_P
+        case "Q": return kVK_ANSI_Q
+        case "R": return kVK_ANSI_R
+        case "S": return kVK_ANSI_S
+        case "T": return kVK_ANSI_T
+        case "U": return kVK_ANSI_U
+        case "V": return kVK_ANSI_V
+        case "W": return kVK_ANSI_W
+        case "X": return kVK_ANSI_X
+        case "Y": return kVK_ANSI_Y
+        case "Z": return kVK_ANSI_Z
+        case "0": return kVK_ANSI_0
+        case "1": return kVK_ANSI_1
+        case "2": return kVK_ANSI_2
+        case "3": return kVK_ANSI_3
+        case "4": return kVK_ANSI_4
+        case "5": return kVK_ANSI_5
+        case "6": return kVK_ANSI_6
+        case "7": return kVK_ANSI_7
+        case "8": return kVK_ANSI_8
+        case "9": return kVK_ANSI_9
+        case "SPACE": return kVK_Space
+        case "ENTER", "RETURN": return kVK_Return
+        case "TAB": return kVK_Tab
+        case "ESC", "ESCAPE": return kVK_Escape
+        default: return nil
+        }
+    }
+    
+    @objc private func triggerDisconnect() {
+        DispatchQueue.main.async {
+            self.checkHearthstoneStatus()
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                if !self.hearthstoneRunning {
+                    self.showUserMessage("请先启动炉石传说游戏")
+                } else if !self.hasAdminPassword {
+                    self.showUserMessage("请先设置管理员密码")
+                } else {
+                    self.toggleConnection(duration: 20) // 默认20秒
+                }
+            }
+        }
+    }
+}
+
+extension String {
+    var fourCharCodeValue: Int {
+        var result: Int = 0
+        if let data = self.data(using: .macOSRoman) {
+            data.withUnsafeBytes { bytes in
+                for i in 0..<min(4, data.count) {
+                    result = result << 8 + Int(bytes[i])
+                }
+            }
+        }
+        return result
     }
 }
