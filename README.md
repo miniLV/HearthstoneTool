@@ -43,7 +43,7 @@
 ### 方法二：从源码编译
 ```bash
 # 克隆仓库
-git clone https://github.com/yourusername/HearthstoneTool.git
+git clone git@github.com:miniLV/HearthstoneTool.git
 cd HearthstoneTool
 
 # 使用 Xcode 打开项目
