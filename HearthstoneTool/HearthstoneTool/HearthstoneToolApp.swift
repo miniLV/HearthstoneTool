@@ -24,7 +24,7 @@ class HearthstonePanel: NSPanel {
     
     init() {
         super.init(contentRect: NSMakeRect(0, 0, 400, 150),
-                  styleMask: [.borderless],
+                   styleMask: [.borderless, .nonactivatingPanel],
                   backing: .buffered,
                   defer: false)
         
