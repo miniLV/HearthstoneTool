@@ -75,7 +75,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panel?.makeKeyAndOrderFront(nil)
         
         // 确保应用不会因为没有窗口而退出
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.setActivationPolicy(.regular)
     }
     
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
