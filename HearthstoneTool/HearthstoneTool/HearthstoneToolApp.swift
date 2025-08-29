@@ -24,7 +24,7 @@ class HearthstonePanel: NSPanel {
     
     init() {
         super.init(contentRect: NSMakeRect(0, 0, 400, 150),
-                  styleMask: [.borderless, .nonactivatingPanel],
+                  styleMask: [.borderless],
                   backing: .buffered,
                   defer: false)
         
@@ -55,6 +55,14 @@ class HearthstonePanel: NSPanel {
         self.center()
         
         print("Panel 配置完成: level=\(self.level.rawValue), behavior=\(self.collectionBehavior)")
+    }
+    
+    override var canBecomeKey: Bool {
+        return true
+    }
+    
+    override var canBecomeMain: Bool {
+        return true
     }
 }
 
