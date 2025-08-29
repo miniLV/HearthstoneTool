@@ -23,15 +23,20 @@ class HearthstonePanel: NSPanel {
     static let kHearthstonePanelTitle = "HearthstoneToolPanel"
     
     init() {
-        super.init(contentRect: NSMakeRect(0, 0, 400, 350),
+        super.init(contentRect: NSMakeRect(0, 0, 400, 150),
                   styleMask: [.borderless, .nonactivatingPanel],
                   backing: .buffered,
                   defer: false)
         
         self.level = NSWindow.Level(rawValue: 1000)
-        self.backgroundColor = NSColor.clear
+        self.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.95)
         self.isOpaque = false
         self.hasShadow = true
+        
+        // 设置圆角
+        self.contentView?.wantsLayer = true
+        self.contentView?.layer?.cornerRadius = 12
+        self.contentView?.layer?.masksToBounds = true
         
         // Allow the panel to be overlaid in a fullscreen space
         var collectionBehavior = self.collectionBehavior

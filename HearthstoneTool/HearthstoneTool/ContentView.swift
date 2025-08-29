@@ -13,61 +13,52 @@ struct ContentView: View {
     @State private var disconnectDuration = 20 // 默认20秒
     
     var body: some View {
-        VStack(spacing: 20) {
-            Text("炉石传说拔线工具")
-                .font(.title)
-                .fontWeight(.bold)
-            
-            VStack(spacing: 15) {
-                HStack {
-                    Text("炉石进程状态:")
-                    Spacer()
-                    Text(networkManager.hearthstoneRunning ? "运行中" : "未运行")
-                        .foregroundColor(networkManager.hearthstoneRunning ? .green : .red)
-                }
+        VStack(spacing: 8) {
+            // 标题栏
+            HStack {
+                Text("炉石拔线工具")
+                    .font(.headline)
+                    .fontWeight(.medium)
+                Spacer()
                 
-                HStack {
-                    Text("网络状态:")
-                    Spacer()
-                    Text(networkManager.isConnected ? "已连接" : "已断开")
-                        .foregroundColor(networkManager.isConnected ? .green : .red)
-                }
-                
-                
-                HStack {
-                    Text("管理员密码:")
-                    Spacer()
-                    Text(networkManager.hasAdminPassword ? "已设置" : "未设置")
-                        .foregroundColor(networkManager.hasAdminPassword ? .green : .orange)
+                // 状态指示器和设置按钮
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(networkManager.hearthstoneRunning ? Color.green : Color.red)
+                        .frame(width: 8, height: 8)
                     
-                    Button(networkManager.hasAdminPassword ? "修改" : "设置") {
+                    Button("⚙️") {
                         showingPasswordSetup = true
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-                
-                HStack {
-                    Text("断网时长:")
-                    Spacer()
-                    TextField("秒", value: $disconnectDuration, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 60)
-                        .multilineTextAlignment(.center)
-                    Text("秒")
-                        .foregroundColor(.gray)
+                    .buttonStyle(.borderless)
+                    .foregroundColor(networkManager.hasAdminPassword ? .green : .orange)
                 }
             }
-            .padding()
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(10)
             
-            VStack(spacing: 10) {
+            // 主要操作区域
+            HStack(spacing: 12) {
+                // 左侧时长设置
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("时长")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    
+                    HStack(spacing: 4) {
+                        TextField("20", value: $disconnectDuration, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 45)
+                        Text("秒")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                }
+                
+                Spacer()
+                
+                // 右侧断网按钮
                 Button(action: {
-                    // 实时检查炉石状态
                     networkManager.checkHearthstoneStatus()
                     
-                    // 延迟一点检查结果，确保状态更新完成
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         if !networkManager.hearthstoneRunning {
                             networkManager.showUserMessage("请先启动炉石传说游戏")
@@ -78,48 +69,41 @@ struct ContentView: View {
                         }
                     }
                 }) {
-                    VStack(spacing: 8) {
+                    VStack(spacing: 4) {
                         if networkManager.isDisconnecting {
                             HStack {
-                                Text("断网中...")
-                                Spacer()
-                                Text("\(networkManager.remainingTime)秒")
+                                Text("断网中")
+                                Text("\(networkManager.remainingTime)s")
+                                    .foregroundColor(.white.opacity(0.8))
                             }
-                            .font(.headline)
+                            .font(.system(size: 14, weight: .medium))
                             
                             ProgressView(value: networkManager.disconnectProgress)
                                 .progressViewStyle(LinearProgressViewStyle(tint: .white))
+                                .frame(height: 2)
                         } else {
-                            Text("断开炉石连接")
-                                .font(.headline)
+                            Text("断开炉石")
+                                .font(.system(size: 14, weight: .medium))
                         }
                     }
                     .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding()
+                    .frame(width: 120, height: 35)
                     .background(networkManager.isDisconnecting ? Color.gray : Color.red)
-                    .cornerRadius(10)
+                    .cornerRadius(8)
                 }
                 .disabled(networkManager.isDisconnecting)
             }
             
-            VStack(spacing: 8) {
-                Text(networkManager.lastActionStatus.isEmpty ? " " : networkManager.lastActionStatus)
+            // 底部状态信息
+            if !networkManager.lastActionStatus.isEmpty {
+                Text(networkManager.lastActionStatus)
                     .font(.caption)
                     .foregroundColor(.blue)
                     .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(minHeight: 16)
-                
-                Text("注意: 需要管理员权限来执行网络阻断")
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(2)
             }
-            .padding(.horizontal)
         }
-        .padding()
+        .padding(12)
         .onAppear {
             networkManager.checkHearthstoneStatus()
         }
