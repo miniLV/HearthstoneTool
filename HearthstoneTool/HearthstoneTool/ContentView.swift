@@ -233,6 +233,10 @@ struct PasswordSetupView: View {
             }
             .padding(.horizontal)
             
+            // Debug console section
+            DebugConsoleView()
+                .padding(.horizontal)
+            
             // Exit app section
             VStack(alignment: .leading, spacing: 10) {
                 Text("应用控制")

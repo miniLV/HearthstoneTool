@@ -220,7 +220,7 @@ class NetworkManager: ObservableObject {
     // MARK: - Keychain Operations
     
     private func savePasswordToKeychain(_ password: String) -> Bool {
-        let service = "HearthstoneTool"
+        let service = Bundle.main.bundleIdentifier ?? "HearthstoneTool"
         let account = "adminPassword"
         
         // 删除旧密码
@@ -249,11 +249,32 @@ class NetworkManager: ObservableObject {
         
         let status = SecItemAdd(query as CFDictionary, nil)
         print("保存密码到钥匙串状态: \(status)")
+        DebugLogger.shared.log("保存密码到钥匙串状态: \(status)")
+        DebugLogger.shared.log("使用服务名: \(service)")
+        DebugLogger.shared.log("Bundle ID: \(Bundle.main.bundleIdentifier ?? "nil")")
+        if status != errSecSuccess {
+            DebugLogger.shared.log("钥匙串保存失败，错误代码: \(status)")
+            // 常见错误码解释
+            switch status {
+            case errSecDuplicateItem:
+                DebugLogger.shared.log("错误: 钥匙串项目已存在 (errSecDuplicateItem)")
+            case errSecParam:
+                DebugLogger.shared.log("错误: 参数错误 (errSecParam)")
+            case errSecAllocate:
+                DebugLogger.shared.log("错误: 内存分配失败 (errSecAllocate)")
+            case errSecNotAvailable:
+                DebugLogger.shared.log("错误: 钥匙串服务不可用 (errSecNotAvailable)")
+            case errSecAuthFailed:
+                DebugLogger.shared.log("错误: 认证失败 (errSecAuthFailed)")
+            default:
+                DebugLogger.shared.log("错误: 未知错误码 \(status)")
+            }
+        }
         return status == errSecSuccess
     }
     
     private func loadPasswordFromKeychain() -> String? {
-        let service = "HearthstoneTool"
+        let service = Bundle.main.bundleIdentifier ?? "HearthstoneTool"
         let account = "adminPassword"
         
         let query: [String: Any] = [
@@ -268,20 +289,24 @@ class NetworkManager: ObservableObject {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         
         print("Debug: 读取钥匙串状态: \(status)")
+        DebugLogger.shared.log("读取钥匙串状态: \(status)")
+        DebugLogger.shared.log("使用服务名: \(service)")
         
         if status == errSecSuccess,
            let passwordData = result as? Data,
            let password = String(data: passwordData, encoding: .utf8) {
             print("Debug: 钥匙串密码读取成功")
+            DebugLogger.shared.log("钥匙串密码读取成功，长度: \(password.count)")
             return password
         }
         
         print("Debug: 钥匙串密码读取失败，状态: \(status)")
+        DebugLogger.shared.log("钥匙串密码读取失败，状态: \(status)")
         return nil
     }
     
     private func deletePasswordFromKeychain() {
-        let service = "HearthstoneTool"
+        let service = Bundle.main.bundleIdentifier ?? "HearthstoneTool"
         let account = "adminPassword"
         
         let query: [String: Any] = [
