@@ -267,12 +267,16 @@ class NetworkManager: ObservableObject {
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         
+        print("Debug: 读取钥匙串状态: \(status)")
+        
         if status == errSecSuccess,
            let passwordData = result as? Data,
            let password = String(data: passwordData, encoding: .utf8) {
+            print("Debug: 钥匙串密码读取成功")
             return password
         }
         
+        print("Debug: 钥匙串密码读取失败，状态: \(status)")
         return nil
     }
     
@@ -320,6 +324,9 @@ class NetworkManager: ObservableObject {
             task.standardOutput = pipe
             task.standardError = pipe
             
+            var hasError = false
+            var errorMessage = ""
+            
             // 实时读取输出
             let outputHandle = pipe.fileHandleForReading
             outputHandle.readabilityHandler = { handle in
@@ -337,6 +344,15 @@ class NetworkManager: ObservableObject {
                             self.startProgressTimer(duration: duration)
                         } else if output.contains("[C] 网络已恢复") {
                             self.lastActionStatus = "网络阻断完成，已自动恢复"
+                        } else if output.contains("[ERROR]") {
+                            // 处理脚本错误
+                            hasError = true
+                            errorMessage = output.replacingOccurrences(of: "[ERROR] ", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+                            self.lastActionStatus = errorMessage
+                            self.disconnectProgress = 0.0
+                            self.remainingTime = 0
+                            self.progressTimer?.invalidate()
+                            self.progressTimer = nil
                         }
                     }
                 }
@@ -361,7 +377,11 @@ class NetworkManager: ObservableObject {
                         self.disconnectProgress = 1.0
                         self.remainingTime = 0
                     } else {
-                        self.lastActionStatus = "网络阻断脚本执行失败，状态码: \(process.terminationStatus)"
+                        // 如果实时输出没有捕获到错误信息，才显示通用错误
+                        if !hasError {
+                            self.lastActionStatus = "网络阻断脚本执行失败，状态码: \(process.terminationStatus)"
+                        }
+                        // 错误状态已经在实时输出中设置了
                         self.disconnectProgress = 0.0
                         self.remainingTime = 0
                     }
