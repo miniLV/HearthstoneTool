@@ -41,27 +41,37 @@
 3. 双击安装包，将应用拖拽到 `Applications` 文件夹
 
 #### ⚠️ 安全提示处理
-由于应用未经过Apple官方签名，首次运行时会遇到安全提示：
+由于应用未经过Apple官方签名，首次运行时会遇到安全提示。常见的错误信息包括：
 
-**步骤1：遇到阻止提示**
+**错误信息1：损坏提示**
+```
+"HearthstoneTool" is damaged and can't be opened. 
+You should eject the disk image.
+```
+
+**错误信息2：验证失败**
 ```
 "HearthstoneTool" cannot be opened because Apple could not verify 
-"HearthstoneTool" is free of malware that may harm your Mac or 
-compromise your privacy.
+"HearthstoneTool" is free of malware that may harm your Mac.
 ```
 
-**步骤2：授权运行**
-1. 打开 **系统偏好设置** (System Preferences)
-2. 点击 **安全性与隐私** (Security & Privacy)
-3. 在 **通用** (General) 标签页中找到：
-   ```
-   "HearthstoneTool" was blocked to protect your Mac.
-   ```
-4. 点击 **仍要打开** (Open Anyway) 按钮
-5. 在弹出对话框中点击 **打开** (Open) 确认
+**解决方法1：通过右键打开（推荐）**
+1. **右键点击应用** → 选择 **"打开"**
+2. 会弹出警告对话框，点击 **"打开"**
+3. 或者在 **系统偏好设置** → **安全性与隐私** → **通用** 中点击 **"仍要打开"**
 
-**步骤3：后续运行**
-完成上述授权后，应用就可以正常启动了。
+**解决方法2：命令行移除隔离属性**
+```bash
+# 如果应用已安装到Applications文件夹：
+sudo xattr -rd com.apple.quarantine /Applications/HearthstoneTool.app
+```
+
+**解决方法3：系统设置临时允许**
+1. **系统偏好设置** → **安全性与隐私** → **通用**
+2. 将 **"允许从以下位置下载的应用"** 改为 **"任何来源"**（需要先解锁）
+3. 运行应用后可改回原设置
+
+> 💡 **提示**：这些错误是macOS正常的安全机制，使用方法1最安全简单。完成授权后，应用就可以正常启动了。
 
 ### 方法二：从源码编译
 ```bash
