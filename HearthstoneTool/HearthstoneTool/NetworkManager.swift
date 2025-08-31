@@ -228,23 +228,12 @@ class NetworkManager: ObservableObject {
         
         let passwordData = password.data(using: .utf8)!
         
-        // 创建访问控制，允许应用在设备未锁定时访问，无需用户确认
-        guard let accessControl = SecAccessControlCreateWithFlags(
-            kCFAllocatorDefault,
-            kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            [],
-            nil
-        ) else {
-            print("无法创建访问控制")
-            return false
-        }
-        
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecValueData as String: passwordData,
-            kSecAttrAccessControl as String: accessControl
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         ]
         
         let status = SecItemAdd(query as CFDictionary, nil)
@@ -266,6 +255,10 @@ class NetworkManager: ObservableObject {
                 DebugLogger.shared.log("错误: 钥匙串服务不可用 (errSecNotAvailable)")
             case errSecAuthFailed:
                 DebugLogger.shared.log("错误: 认证失败 (errSecAuthFailed)")
+            case -34018:
+                DebugLogger.shared.log("错误: 缺少钥匙串权限 (errSecMissingEntitlement)")
+            case -25300:
+                DebugLogger.shared.log("错误: 钥匙串项目不存在 (errSecItemNotFound)")
             default:
                 DebugLogger.shared.log("错误: 未知错误码 \(status)")
             }
